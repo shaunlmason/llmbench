@@ -70,20 +70,12 @@ def cmd_run(args):
 
             # 4. Health check
             if not wait_for_health(args.port, server_process):
-                print(f"Error: Server failed to start for {model_ref}")
                 _stop_server_once()
-                print("Skipping this model, continuing to next...")
-                continue
+                raise RuntimeError(f"Server failed to start for {model_ref}")
 
             # 5. Run benchmarks
             print(f"\nBenchmarking {filename} ({args.gpu}, ctx={args.context_length})...")
-            try:
-                scores = run_benchmark(args.port, tasks, args.limit, filename)
-            except Exception as e:
-                print(f"Error benchmarking {model_ref}: {e}")
-                _stop_server_once()
-                print("Skipping this model, continuing to next...")
-                continue
+            scores = run_benchmark(args.port, tasks, args.limit, filename)
 
             # 6. Store result
             entry = {
