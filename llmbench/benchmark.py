@@ -1,8 +1,12 @@
+import os
 import subprocess
 import json
 import sys
 import tempfile
 from pathlib import Path
+
+# Allow HumanEval code execution
+os.environ["HF_ALLOW_CODE_EVAL"] = "1"
 
 
 # Map GGUF filename prefixes to HuggingFace tokenizer repos
@@ -71,7 +75,7 @@ def run_benchmark(
     print(f"Using tokenizer: {tokenizer_repo}")
     try:
         return _run_via_library(port, tasks, limit, model_name, tokenizer_repo)
-    except ImportError as e:
+    except Exception as e:
         print(f"Library invocation failed ({e}), falling back to CLI...")
         return _run_via_cli(port, tasks, limit, model_name, tokenizer_repo)
 
