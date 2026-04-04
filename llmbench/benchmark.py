@@ -5,6 +5,33 @@ import tempfile
 from pathlib import Path
 
 
+# Map GGUF filename prefixes to HuggingFace tokenizer repos
+TOKENIZER_MAP = {
+    "Qwen3.5-": "Qwen/Qwen3.5-32B",
+    "Qwen3-": "Qwen/Qwen3-32B",
+    "Qwen2.5-Coder-": "Qwen/Qwen2.5-Coder-32B-Instruct",
+    "Qwen2.5-": "Qwen/Qwen2.5-32B",
+    "gemma-4-": "google/gemma-3-27b-it",
+    "gemma-3-": "google/gemma-3-27b-it",
+    "Mistral-": "mistralai/Mistral-7B-Instruct-v0.3",
+    "Llama-3": "meta-llama/Llama-3.1-8B-Instruct",
+    "Phi-": "microsoft/Phi-3-mini-4k-instruct",
+}
+
+
+def _resolve_tokenizer(model_name: str, tokenizer: str | None) -> str:
+    """Resolve a HuggingFace tokenizer repo from model filename."""
+    if tokenizer:
+        return tokenizer
+    for prefix, repo in TOKENIZER_MAP.items():
+        if model_name.startswith(prefix):
+            return repo
+    raise ValueError(
+        f"Cannot auto-detect tokenizer for '{model_name}'. "
+        f"Pass --tokenizer with a HuggingFace repo ID (e.g. Qwen/Qwen3.5-32B)."
+    )
+
+
 # Primary metrics to extract per task
 PRIMARY_METRICS = {
     "hellaswag": "acc_norm",
@@ -23,17 +50,20 @@ def run_benchmark(
     tasks: list[str],
     limit: int,
     model_name: str,
+    tokenizer: str | None = None,
 ) -> dict:
     """Run lm-evaluation-harness against the local llama-server endpoint.
 
     Tries the Python API first, falls back to CLI subprocess.
     Returns {task_name: {metric: score, ...}, ...}.
     """
+    tokenizer_repo = _resolve_tokenizer(model_name, tokenizer)
+    print(f"Using tokenizer: {tokenizer_repo}")
     try:
-        return _run_via_library(port, tasks, limit, model_name)
+        return _run_via_library(port, tasks, limit, model_name, tokenizer_repo)
     except Exception as e:
         print(f"Library invocation failed ({e}), falling back to CLI...")
-        return _run_via_cli(port, tasks, limit, model_name)
+        return _run_via_cli(port, tasks, limit, model_name, tokenizer_repo)
 
 
 def _run_via_library(
@@ -41,6 +71,7 @@ def _run_via_library(
     tasks: list[str],
     limit: int,
     model_name: str,
+    tokenizer_repo: str,
 ) -> dict:
     """Use lm_eval.simple_evaluate() directly."""
     import lm_eval
@@ -48,6 +79,8 @@ def _run_via_library(
     model_args = (
         f"model={model_name},"
         f"base_url=http://localhost:{port}/v1/completions,"
+        f"tokenizer_backend=huggingface,"
+        f"tokenizer={tokenizer_repo},"
         f"num_concurrent=4,"
         f"timeout=600"
     )
@@ -69,6 +102,7 @@ def _run_via_cli(
     tasks: list[str],
     limit: int,
     model_name: str,
+    tokenizer_repo: str,
 ) -> dict:
     """Fall back to lm_eval CLI and parse JSON output."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -78,6 +112,8 @@ def _run_via_cli(
             "--model_args", (
                 f"model={model_name},"
                 f"base_url=http://localhost:{port}/v1/completions,"
+                f"tokenizer_backend=huggingface,"
+                f"tokenizer={tokenizer_repo},"
                 f"num_concurrent=4,"
                 f"timeout=600"
             ),

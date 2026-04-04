@@ -75,7 +75,7 @@ def cmd_run(args):
 
             # 5. Run benchmarks
             print(f"\nBenchmarking {filename} ({args.gpu}, ctx={args.context_length})...")
-            scores = run_benchmark(args.port, tasks, args.limit, filename)
+            scores = run_benchmark(args.port, tasks, args.limit, filename, args.tokenizer)
 
             # 6. Store result
             entry = {
@@ -139,6 +139,10 @@ def main():
     run_parser.add_argument(
         "--port", type=int, default=DEFAULT_PORT,
         help=f"llama-server port (default: {DEFAULT_PORT})",
+    )
+    run_parser.add_argument(
+        "--tokenizer", default=None,
+        help="HuggingFace tokenizer repo ID (auto-detected from model name if omitted)",
     )
     run_parser.add_argument(
         "--no-restore", action="store_true",
