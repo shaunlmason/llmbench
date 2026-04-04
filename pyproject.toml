@@ -1,0 +1,19 @@
+[project]
+name = "llmbench"
+version = "0.1.0"
+description = "Fast local LLM benchmarking for llama-server"
+requires-python = ">=3.10"
+dependencies = [
+    "lm-eval[api]>=0.4.4",
+    "transformers",
+    "huggingface-hub>=0.25.0",
+    "requests>=2.31.0",
+    "tabulate>=0.9.0",
+]
+
+[project.scripts]
+llmbench = "llmbench.cli:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
