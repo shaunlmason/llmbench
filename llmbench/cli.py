@@ -75,7 +75,7 @@ def cmd_run(args):
 
             # 5. Run benchmarks
             print(f"\nBenchmarking {filename} ({args.gpu}, ctx={args.context_length})...")
-            scores = run_benchmark(args.port, tasks, args.limit, filename, args.tokenizer)
+            scores = run_benchmark(args.port, tasks, args.limit, filename, repo_id, args.tokenizer)
 
             # 6. Store result
             entry = {

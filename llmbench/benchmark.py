@@ -7,28 +7,37 @@ from pathlib import Path
 
 # Map GGUF filename prefixes to HuggingFace tokenizer repos
 TOKENIZER_MAP = {
-    "Qwen3.5-": "Qwen/Qwen3.5-32B",
-    "Qwen3-": "Qwen/Qwen3-32B",
-    "Qwen2.5-Coder-": "Qwen/Qwen2.5-Coder-32B-Instruct",
-    "Qwen2.5-": "Qwen/Qwen2.5-32B",
-    "gemma-4-": "google/gemma-3-27b-it",
-    "gemma-3-": "google/gemma-3-27b-it",
+    "Qwen3.5-": "Qwen/Qwen3.5-4B-Base",
+    "Qwen3-": "Qwen/Qwen3-0.6B",
+    "Qwen2.5-Coder-": "Qwen/Qwen2.5-Coder-0.5B-Instruct",
+    "Qwen2.5-": "Qwen/Qwen2.5-0.5B",
+    "gemma-4-": "google/gemma-3-4b-it",
+    "gemma-3-": "google/gemma-3-4b-it",
     "Mistral-": "mistralai/Mistral-7B-Instruct-v0.3",
-    "Llama-3": "meta-llama/Llama-3.1-8B-Instruct",
+    "Llama-3": "meta-llama/Llama-3.2-1B",
     "Phi-": "microsoft/Phi-3-mini-4k-instruct",
 }
 
 
-def _resolve_tokenizer(model_name: str, tokenizer: str | None) -> str:
-    """Resolve a HuggingFace tokenizer repo from model filename."""
+def _resolve_tokenizer(repo_id: str, model_name: str, tokenizer: str | None) -> str:
+    """Resolve a HuggingFace tokenizer repo.
+
+    Priority:
+    1. Explicit --tokenizer flag
+    2. Strip -GGUF from the GGUF repo ID (e.g. Jackrong/Foo-GGUF -> Jackrong/Foo)
+    3. Filename prefix map as last resort
+    """
     if tokenizer:
         return tokenizer
+    # Most GGUF repos have a non-GGUF sibling with the tokenizer
+    if repo_id.endswith("-GGUF"):
+        return repo_id.removesuffix("-GGUF")
     for prefix, repo in TOKENIZER_MAP.items():
         if model_name.startswith(prefix):
             return repo
     raise ValueError(
-        f"Cannot auto-detect tokenizer for '{model_name}'. "
-        f"Pass --tokenizer with a HuggingFace repo ID (e.g. Qwen/Qwen3.5-32B)."
+        f"Cannot auto-detect tokenizer for '{model_name}' (repo: {repo_id}). "
+        f"Pass --tokenizer with a HuggingFace repo ID."
     )
 
 
@@ -50,6 +59,7 @@ def run_benchmark(
     tasks: list[str],
     limit: int,
     model_name: str,
+    repo_id: str,
     tokenizer: str | None = None,
 ) -> dict:
     """Run lm-evaluation-harness against the local llama-server endpoint.
@@ -57,11 +67,11 @@ def run_benchmark(
     Tries the Python API first, falls back to CLI subprocess.
     Returns {task_name: {metric: score, ...}, ...}.
     """
-    tokenizer_repo = _resolve_tokenizer(model_name, tokenizer)
+    tokenizer_repo = _resolve_tokenizer(repo_id, model_name, tokenizer)
     print(f"Using tokenizer: {tokenizer_repo}")
     try:
         return _run_via_library(port, tasks, limit, model_name, tokenizer_repo)
-    except Exception as e:
+    except ImportError as e:
         print(f"Library invocation failed ({e}), falling back to CLI...")
         return _run_via_cli(port, tasks, limit, model_name, tokenizer_repo)
 
