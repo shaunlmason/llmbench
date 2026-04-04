@@ -106,6 +106,7 @@ def _run_via_library(
         tasks=tasks,
         limit=limit,
         log_samples=False,
+        confirm_run_unsafe_code=True,
     )
 
     return _extract_scores(results["results"])
@@ -134,6 +135,7 @@ def _run_via_cli(
             "--tasks", ",".join(tasks),
             "--limit", str(limit),
             "--output_path", tmpdir,
+            "--confirm_run_unsafe_code",
         ]
 
         print(f"Running: {' '.join(cmd)}")
