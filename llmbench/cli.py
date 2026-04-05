@@ -96,6 +96,8 @@ def cmd_run(args):
                     "gpu_config": args.gpu,
                     "context_length": args.context_length,
                     "limit": args.limit,
+                    "cache_type_k": args.cache_type_k,
+                    "cache_type_v": args.cache_type_v,
                     "scores": scores,
                     "elapsed_seconds": elapsed,
                 }
@@ -131,7 +133,7 @@ def cmd_run(args):
 
 
 def cmd_results(args):
-    print_ranking_table(Path(args.history_file), as_json=args.json)
+    print_ranking_table(Path(args.history_file), as_json=args.json, sort_by=args.sort, ascending=args.asc)
 
 
 def main():
@@ -214,6 +216,14 @@ def main():
     results_parser.add_argument(
         "--json", action="store_true",
         help="Output raw JSON instead of table",
+    )
+    results_parser.add_argument(
+        "--sort", default="score",
+        help="Sort by: score, time, eff, model, or a task name (default: score)",
+    )
+    results_parser.add_argument(
+        "--asc", action="store_true",
+        help="Sort ascending instead of descending",
     )
     results_parser.add_argument(
         "--history-file", default=str(HISTORY_FILE),

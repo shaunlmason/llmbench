@@ -66,7 +66,12 @@ def load_results(history_file: Path = HISTORY_FILE) -> list[dict]:
         return json.load(f)
 
 
-def print_ranking_table(history_file: Path = HISTORY_FILE, as_json: bool = False):
+def print_ranking_table(
+    history_file: Path = HISTORY_FILE,
+    as_json: bool = False,
+    sort_by: str = "score",
+    ascending: bool = False,
+):
     """Print a ranked summary of all benchmark results."""
     history = load_results(history_file)
     if not history:
@@ -109,19 +114,46 @@ def print_ranking_table(history_file: Path = HISTORY_FILE, as_json: bool = False
                 all_tasks.append(task)
                 seen.add(task)
 
-    # Build table rows sorted by composite score (descending)
+    # Sort entries
+    def _sort_key(entry):
+        if sort_by == "score":
+            return entry.get("composite_score", 0)
+        elif sort_by == "time":
+            return entry.get("elapsed_seconds") or 0
+        elif sort_by == "eff":
+            elapsed = entry.get("elapsed_seconds") or 0
+            composite = entry.get("composite_score", 0)
+            return composite / (elapsed / 60) if elapsed and composite else 0
+        elif sort_by == "model":
+            return entry.get("model", "").lower()
+        else:
+            # Sort by task name
+            task = sort_by
+            metrics = entry.get("_display_scores", {}).get(task, {})
+            score = _get_primary_score(task, metrics)
+            return score if score is not None else -1
+
+    sorted_entries = sorted(aggregated, key=_sort_key, reverse=not ascending)
+
+    # Build table rows
     rows = []
-    for entry in sorted(aggregated, key=lambda e: e.get("composite_score", 0), reverse=True):
+    for entry in sorted_entries:
         model = entry.get("model", "unknown")
         if ":" in model:
             model = model.split(":")[1]
-        # Trim .gguf suffix
         if model.endswith(".gguf"):
             model = model[:-5]
 
         gpu = entry.get("gpu_config", "?")
         ctx = entry.get("context_length", "?")
         lim = entry.get("limit", "-")
+        kv = entry.get("cache_type_k", "")
+        if kv and entry.get("cache_type_v", "") == kv:
+            kv_str = kv
+        elif kv:
+            kv_str = f"{kv}/{entry.get('cache_type_v', '')}"
+        else:
+            kv_str = ""
         composite = entry.get("composite_score", 0)
 
         elapsed = entry.get("elapsed_seconds")
@@ -136,7 +168,7 @@ def print_ranking_table(history_file: Path = HISTORY_FILE, as_json: bool = False
             eff_str = "-"
 
         server_args = entry.get("server_args", "")
-        row = [model, gpu, ctx, lim, f"{composite:.4f}", time_str, eff_str]
+        row = [model, gpu, ctx, lim, kv_str, f"{composite:.4f}", time_str, eff_str]
 
         for task in all_tasks:
             metrics = entry["_display_scores"].get(task, {})
@@ -147,7 +179,7 @@ def print_ranking_table(history_file: Path = HISTORY_FILE, as_json: bool = False
         rows.append(row)
 
     # Short display names for column headers
-    headers = ["Model", "GPU", "Ctx", "N", "Avg", "Time", "Eff"] + [_short_name(t) for t in all_tasks] + ["Args"]
+    headers = ["Model", "GPU", "Ctx", "N", "KV", "Avg", "Time", "Eff"] + [_short_name(t) for t in all_tasks] + ["Args"]
     print()
     print(tabulate(rows, headers=headers, tablefmt="simple"))
     print()
