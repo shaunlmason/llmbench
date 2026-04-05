@@ -75,6 +75,7 @@ def cmd_run(args):
                     cache_type_v=args.cache_type_v,
                     flash_attn=not args.no_flash_attn,
                     jinja=not args.no_jinja,
+                    tensor_split=args.tensor_split,
                 )
 
                 # 4. Health check
@@ -166,6 +167,10 @@ def main():
     run_parser.add_argument(
         "--port", type=int, default=DEFAULT_PORT,
         help=f"llama-server port (default: {DEFAULT_PORT})",
+    )
+    run_parser.add_argument(
+        "--tensor-split", default="3,1",
+        help="GPU memory split ratio for --gpu both (default: 3,1)",
     )
     run_parser.add_argument(
         "--cache-type-k", default="q4_0",
