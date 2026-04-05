@@ -77,47 +77,50 @@ def print_ranking_table(history_file: Path = HISTORY_FILE, as_json: bool = False
         print(json.dumps(history, indent=2))
         return
 
+    # Collect all task names across all entries for column headers
+    all_tasks = []
+    seen = set()
+    for entry in history:
+        for task in entry.get("scores", {}):
+            if task not in seen:
+                all_tasks.append(task)
+                seen.add(task)
+
     # Build table rows sorted by composite score (descending)
     rows = []
     for entry in sorted(history, key=lambda e: e.get("composite_score", 0), reverse=True):
         model = entry.get("model", "unknown")
-        # Shorten model name for display
         if ":" in model:
             model = model.split(":")[1]
 
         gpu = entry.get("gpu_config", "?")
         ctx = entry.get("context_length", "?")
         composite = entry.get("composite_score", 0)
-        ts = entry.get("timestamp", "?")[:19]
 
-        # Collect individual task scores
-        task_scores = []
-        for task, metrics in entry.get("scores", {}).items():
-            primary_key = PRIMARY_METRICS.get(task)
-            found = False
-            if primary_key:
-                for k, v in metrics.items():
-                    if k.startswith(primary_key) and "stderr" not in k:
-                        task_scores.append(f"{task}: {v:.3f}")
-                        found = True
-                        break
-            if not found:
-                # Show first numeric metric
-                for k, v in metrics.items():
-                    if isinstance(v, (int, float)) and "stderr" not in k:
-                        task_scores.append(f"{task}: {v:.3f}")
-                        break
+        row = [model, gpu, ctx, f"{composite:.4f}"]
 
-        rows.append([
-            model,
-            gpu,
-            ctx,
-            f"{composite:.4f}",
-            " | ".join(task_scores),
-            ts,
-        ])
+        for task in all_tasks:
+            metrics = entry.get("scores", {}).get(task, {})
+            score = _get_primary_score(task, metrics)
+            row.append(f"{score:.3f}" if score is not None else "-")
 
-    headers = ["Model", "GPU", "Ctx", "Score", "Tasks", "Date"]
+        rows.append(row)
+
+    headers = ["Model", "GPU", "Ctx", "Score"] + all_tasks
     print()
     print(tabulate(rows, headers=headers, tablefmt="simple"))
     print()
+
+
+def _get_primary_score(task: str, metrics: dict) -> float | None:
+    """Extract the primary score for a task from its metrics dict."""
+    primary_key = PRIMARY_METRICS.get(task)
+    if primary_key:
+        for k, v in metrics.items():
+            if k.startswith(primary_key) and "stderr" not in k:
+                return v
+    # Fall back to first numeric non-stderr metric
+    for k, v in metrics.items():
+        if isinstance(v, (int, float)) and "stderr" not in k:
+            return v
+    return None
