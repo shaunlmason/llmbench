@@ -95,6 +95,10 @@ def start_llama_server(
     gpu_config: str,
     context_length: int,
     port: int,
+    cache_type_k: str = "q4_0",
+    cache_type_v: str = "q4_0",
+    flash_attn: bool = True,
+    jinja: bool = True,
 ) -> subprocess.Popen:
     """Start llama-server with the given model and GPU configuration."""
     if not wait_for_port_release(port):
@@ -108,7 +112,13 @@ def start_llama_server(
         "--port", str(port),
         "-c", str(context_length),
         "-ngl", "999",
+        "--cache-type-k", cache_type_k,
+        "--cache-type-v", cache_type_v,
     ]
+    if flash_attn:
+        cmd.extend(["-fa", "on"])
+    if jinja:
+        cmd.append("--jinja")
 
     env = os.environ.copy()
 

@@ -65,7 +65,14 @@ def cmd_run(args):
 
             # 3. Start llama-server
             server_process = start_llama_server(
-                model_path, args.gpu, args.context_length, args.port
+                model_path,
+                args.gpu,
+                args.context_length,
+                args.port,
+                cache_type_k=args.cache_type_k,
+                cache_type_v=args.cache_type_v,
+                flash_attn=not args.no_flash_attn,
+                jinja=not args.no_jinja,
             )
 
             # 4. Health check
@@ -147,6 +154,22 @@ def main():
     run_parser.add_argument(
         "--port", type=int, default=DEFAULT_PORT,
         help=f"llama-server port (default: {DEFAULT_PORT})",
+    )
+    run_parser.add_argument(
+        "--cache-type-k", default="q4_0",
+        help="KV cache quantization type for keys (default: q4_0)",
+    )
+    run_parser.add_argument(
+        "--cache-type-v", default="q4_0",
+        help="KV cache quantization type for values (default: q4_0)",
+    )
+    run_parser.add_argument(
+        "--no-flash-attn", action="store_true",
+        help="Disable flash attention (enabled by default)",
+    )
+    run_parser.add_argument(
+        "--no-jinja", action="store_true",
+        help="Disable Jinja template support (enabled by default)",
     )
     run_parser.add_argument(
         "--tokenizer", default=None,
