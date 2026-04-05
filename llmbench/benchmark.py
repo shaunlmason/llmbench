@@ -109,11 +109,23 @@ def run_benchmark(
             f"Requested tasks: {details}"
         )
 
-    try:
-        return _run_via_library(port, runnable_tasks, limit, model_name, tokenizer_repo)
-    except Exception as e:
-        print(f"Library invocation failed ({e}), falling back to CLI...")
-        return _run_via_cli(port, runnable_tasks, limit, model_name, tokenizer_repo)
+    # Run each task individually so we can report progress
+    all_scores = {}
+    for i, task in enumerate(runnable_tasks, 1):
+        print(f"\n[{i}/{len(runnable_tasks)}] Running {task}...")
+        try:
+            scores = _run_via_library(port, [task], limit, model_name, tokenizer_repo)
+        except Exception as e:
+            print(f"Library invocation failed ({e}), falling back to CLI...")
+            scores = _run_via_cli(port, [task], limit, model_name, tokenizer_repo)
+        all_scores.update(scores)
+        # Print score for this task
+        for task_name, metrics in scores.items():
+            for k, v in metrics.items():
+                if isinstance(v, (int, float)) and "stderr" not in k:
+                    print(f"  {task_name}: {v:.4f}")
+                    break
+    return all_scores
 
 
 def _task_requires_prompt_logprobs(tasks: list[str]) -> dict[str, bool]:
