@@ -27,6 +27,7 @@ from .server import (
 def cmd_run(args):
     stopped_services = []
     server_process = None
+    interrupted = False
 
     def _stop_server_once():
         nonlocal server_process
@@ -45,7 +46,6 @@ def cmd_run(args):
         if signum is not None:
             sys.exit(1)
 
-    signal.signal(signal.SIGINT, _cleanup)
     signal.signal(signal.SIGTERM, _cleanup)
 
     tasks = [task.strip() for task in args.tasks.split(",") if task.strip()]
@@ -91,9 +91,15 @@ def cmd_run(args):
             # 7. Stop server before next model
             _stop_server_once()
 
+    except KeyboardInterrupt:
+        interrupted = True
     finally:
         _stop_server_once()
         _restore_services_once()
+
+    if interrupted:
+        print("\nBenchmark interrupted.")
+        raise SystemExit(130)
 
     # 8. Print ranking
     print_ranking_table(Path(args.history_file))

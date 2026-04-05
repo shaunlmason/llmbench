@@ -1,9 +1,11 @@
 import os
-import subprocess
 import json
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+import requests
 
 # Allow HumanEval code execution
 os.environ["HF_ALLOW_CODE_EVAL"] = "1"
@@ -57,6 +59,12 @@ PRIMARY_METRICS = {
     "winogrande": "acc",
 }
 
+LOGPROB_OUTPUT_TYPES = {
+    "loglikelihood",
+    "loglikelihood_rolling",
+    "multiple_choice",
+}
+
 
 def run_benchmark(
     port: int,
@@ -73,11 +81,121 @@ def run_benchmark(
     """
     tokenizer_repo = _resolve_tokenizer(repo_id, model_name, tokenizer)
     print(f"Using tokenizer: {tokenizer_repo}")
+
+    runnable_tasks, skipped_tasks = _split_tasks_by_api_capability(port, tasks, model_name)
+    if skipped_tasks:
+        skipped = ", ".join(f"{name} ({reason})" for name, reason in skipped_tasks.items())
+        print(f"Skipping unsupported tasks: {skipped}")
+    if not runnable_tasks:
+        details = ", ".join(f"{name} ({reason})" for name, reason in skipped_tasks.items())
+        raise RuntimeError(
+            "No runnable tasks remain for the current llama-server API. "
+            f"Requested tasks: {details}"
+        )
+
     try:
-        return _run_via_library(port, tasks, limit, model_name, tokenizer_repo)
+        return _run_via_library(port, runnable_tasks, limit, model_name, tokenizer_repo)
     except Exception as e:
         print(f"Library invocation failed ({e}), falling back to CLI...")
-        return _run_via_cli(port, tasks, limit, model_name, tokenizer_repo)
+        return _run_via_cli(port, runnable_tasks, limit, model_name, tokenizer_repo)
+
+
+def _task_requires_prompt_logprobs(tasks: list[str]) -> dict[str, bool]:
+    """Resolve whether each requested task depends on prompt logprobs."""
+    from lm_eval.tasks import TaskManager, get_task_dict
+
+    task_manager = TaskManager()
+    requirements = {}
+    for requested_task in tasks:
+        task_dict = get_task_dict([requested_task], task_manager)
+        if not task_dict:
+            raise RuntimeError(f"Could not resolve task '{requested_task}'.")
+
+        requires_prompt_logprobs = False
+        for task_name, task in task_dict.items():
+            output_type = getattr(task, "output_type", None)
+            if output_type is None:
+                config = getattr(task, "config", None)
+                if config is not None:
+                    output_type = getattr(config, "output_type", None)
+            if output_type is None:
+                raise RuntimeError(
+                    f"Could not determine output type for task '{task_name}'."
+                )
+            if output_type in LOGPROB_OUTPUT_TYPES:
+                requires_prompt_logprobs = True
+                break
+
+        requirements[requested_task] = requires_prompt_logprobs
+    return requirements
+
+
+def _server_supports_prompt_logprobs(port: int, model_name: str) -> bool:
+    """Check whether the OpenAI-compatible endpoint returns echoed prompt logprobs."""
+    url = f"http://localhost:{port}/v1/completions"
+    payload = {
+        "model": model_name,
+        "prompt": " hello",
+        "max_tokens": 1,
+        "temperature": 0,
+        "logprobs": 1,
+        "echo": True,
+    }
+
+    try:
+        response = requests.post(url, json=payload, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Prompt logprob capability probe failed: {exc}") from exc
+
+    choices = data.get("choices") or []
+    if not choices:
+        return False
+
+    choice = choices[0]
+    text = choice.get("text")
+    logprobs = choice.get("logprobs")
+    if not isinstance(text, str) or not text.startswith(payload["prompt"]):
+        return False
+    if not isinstance(logprobs, dict):
+        return False
+
+    token_logprobs = logprobs.get("token_logprobs")
+    if not isinstance(token_logprobs, list):
+        return False
+
+    return len(token_logprobs) >= 2
+
+
+def _split_tasks_by_api_capability(
+    port: int,
+    tasks: list[str],
+    model_name: str,
+) -> tuple[list[str], dict[str, str]]:
+    """Filter out tasks that need prompt logprobs when the server cannot provide them."""
+    task_requirements = _task_requires_prompt_logprobs(tasks)
+    prompt_logprob_tasks = [
+        task_name
+        for task_name, requires_prompt_logprobs in task_requirements.items()
+        if requires_prompt_logprobs
+    ]
+    if not prompt_logprob_tasks:
+        return list(tasks), {}
+
+    if _server_supports_prompt_logprobs(port, model_name):
+        return list(tasks), {}
+
+    skipped_tasks = {
+        task_name: "server did not return echoed prompt logprobs on /v1/completions"
+        for task_name in prompt_logprob_tasks
+    }
+    runnable_tasks = [
+        task_name
+        for task_name, requires_prompt_logprobs in task_requirements.items()
+        if not requires_prompt_logprobs
+    ]
+    return runnable_tasks, skipped_tasks
 
 
 def _run_via_library(
