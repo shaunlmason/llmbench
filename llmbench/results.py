@@ -12,6 +12,7 @@ PRIMARY_METRICS = {
     "hellaswag": "acc_norm",
     "humaneval": "pass@1",
     "mbpp": "pass@1",
+    "gsm8k": "exact_match",
     "mmlu": "acc",
     "arc_easy": "acc_norm",
     "arc_challenge": "acc_norm",
@@ -30,8 +31,12 @@ def save_result(entry: dict, history_file: Path = HISTORY_FILE):
     primary_scores = []
     for task, metrics in entry.get("scores", {}).items():
         primary_key = PRIMARY_METRICS.get(task)
-        if primary_key and primary_key in metrics:
-            primary_scores.append(metrics[primary_key])
+        if primary_key:
+            # lm-eval may append suffixes (e.g. "pass@1,create_test")
+            for key, value in metrics.items():
+                if key.startswith(primary_key) and "stderr" not in key:
+                    primary_scores.append(value)
+                    break
     entry["composite_score"] = round(sum(primary_scores) / len(primary_scores), 4) if primary_scores else 0.0
 
     history.append(entry)
@@ -88,9 +93,14 @@ def print_ranking_table(history_file: Path = HISTORY_FILE, as_json: bool = False
         task_scores = []
         for task, metrics in entry.get("scores", {}).items():
             primary_key = PRIMARY_METRICS.get(task)
-            if primary_key and primary_key in metrics:
-                task_scores.append(f"{task}: {metrics[primary_key]:.3f}")
-            else:
+            found = False
+            if primary_key:
+                for k, v in metrics.items():
+                    if k.startswith(primary_key) and "stderr" not in k:
+                        task_scores.append(f"{task}: {v:.3f}")
+                        found = True
+                        break
+            if not found:
                 # Show first numeric metric
                 for k, v in metrics.items():
                     if isinstance(v, (int, float)) and "stderr" not in k:

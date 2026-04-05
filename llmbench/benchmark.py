@@ -66,6 +66,7 @@ PRIMARY_METRICS = {
     "hellaswag": "acc_norm",
     "humaneval": "pass@1",
     "mbpp": "pass@1",
+    "gsm8k": "exact_match",
     "mmlu": "acc",
     "arc_easy": "acc_norm",
     "arc_challenge": "acc_norm",
