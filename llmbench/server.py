@@ -2,6 +2,7 @@ import atexit
 import os
 import socket
 import subprocess
+import tempfile
 import time
 
 import requests
@@ -131,12 +132,16 @@ def start_llama_server(
         cmd.extend(["--tensor-split", "1,1"])
 
     print(f"Starting llama-server on {gpu_config}: {' '.join(cmd)}")
+    stderr_log = tempfile.NamedTemporaryFile(
+        mode="w", prefix="llama-stderr-", suffix=".log", delete=False
+    )
     process = subprocess.Popen(
         cmd,
         env=env,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=stderr_log,
     )
+    process._stderr_log_path = stderr_log.name
 
     # Register cleanup as safety net
     def _cleanup():
@@ -161,6 +166,7 @@ def wait_for_health(
         returncode = process.poll()
         if returncode is not None:
             print(f" exited early (code {returncode})!")
+            _print_stderr_log(process)
             return False
         try:
             resp = requests.get(url, timeout=5)
@@ -175,9 +181,27 @@ def wait_for_health(
     returncode = process.poll()
     if returncode is not None:
         print(f" exited early (code {returncode})!")
+        _print_stderr_log(process)
     else:
         print(" timeout!")
     return False
+
+
+def _print_stderr_log(process: subprocess.Popen):
+    """Print the last lines of the stderr log if available."""
+    log_path = getattr(process, "_stderr_log_path", None)
+    if not log_path:
+        return
+    try:
+        with open(log_path) as f:
+            lines = f.readlines()
+        tail = lines[-20:] if len(lines) > 20 else lines
+        if tail:
+            print("--- llama-server stderr ---")
+            print("".join(tail).rstrip())
+            print("---")
+    except OSError:
+        pass
 
 
 def stop_llama_server(process: subprocess.Popen):

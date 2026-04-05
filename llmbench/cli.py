@@ -52,54 +52,60 @@ def cmd_run(args):
     if not tasks:
         raise ValueError("At least one benchmark task is required.")
 
+    failed_models = []
     try:
         for model_ref in args.models:
-            repo_id, filename = parse_model_ref(model_ref)
+            try:
+                repo_id, filename = parse_model_ref(model_ref)
 
-            # 1. Download model if needed
-            model_path = ensure_model(repo_id, filename, Path(args.models_dir))
+                # 1. Download model if needed
+                model_path = ensure_model(repo_id, filename, Path(args.models_dir))
 
-            # 2. Stop services (first iteration only)
-            if not stopped_services:
-                stopped_services = stop_services(args.gpu)
+                # 2. Stop services (first iteration only)
+                if not stopped_services:
+                    stopped_services = stop_services(args.gpu)
 
-            # 3. Start llama-server
-            server_process = start_llama_server(
-                model_path,
-                args.gpu,
-                args.context_length,
-                args.port,
-                cache_type_k=args.cache_type_k,
-                cache_type_v=args.cache_type_v,
-                flash_attn=not args.no_flash_attn,
-                jinja=not args.no_jinja,
-            )
+                # 3. Start llama-server
+                server_process = start_llama_server(
+                    model_path,
+                    args.gpu,
+                    args.context_length,
+                    args.port,
+                    cache_type_k=args.cache_type_k,
+                    cache_type_v=args.cache_type_v,
+                    flash_attn=not args.no_flash_attn,
+                    jinja=not args.no_jinja,
+                )
 
-            # 4. Health check
-            if not wait_for_health(args.port, server_process):
+                # 4. Health check
+                if not wait_for_health(args.port, server_process):
+                    _stop_server_once()
+                    raise RuntimeError(f"Server failed to start for {model_ref}")
+
+                # 5. Run benchmarks
+                print(f"\nBenchmarking {filename} ({args.gpu}, ctx={args.context_length})...")
+                scores = run_benchmark(args.port, tasks, args.limit, filename, repo_id, args.tokenizer)
+
+                # 6. Store result
+                elapsed = scores.pop("_elapsed_seconds", None)
+                entry = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "model": model_ref,
+                    "gpu_config": args.gpu,
+                    "context_length": args.context_length,
+                    "limit": args.limit,
+                    "scores": scores,
+                    "elapsed_seconds": elapsed,
+                }
+                save_result(entry, Path(args.history_file))
+                print(f"Results saved for {filename}")
+
+            except Exception as e:
+                print(f"\nError on {model_ref}: {e}")
+                failed_models.append(model_ref)
+            finally:
+                # 7. Stop server before next model
                 _stop_server_once()
-                raise RuntimeError(f"Server failed to start for {model_ref}")
-
-            # 5. Run benchmarks
-            print(f"\nBenchmarking {filename} ({args.gpu}, ctx={args.context_length})...")
-            scores = run_benchmark(args.port, tasks, args.limit, filename, repo_id, args.tokenizer)
-
-            # 6. Store result
-            elapsed = scores.pop("_elapsed_seconds", None)
-            entry = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "model": model_ref,
-                "gpu_config": args.gpu,
-                "context_length": args.context_length,
-                "limit": args.limit,
-                "scores": scores,
-                "elapsed_seconds": elapsed,
-            }
-            save_result(entry, Path(args.history_file))
-            print(f"Results saved for {filename}")
-
-            # 7. Stop server before next model
-            _stop_server_once()
 
     except KeyboardInterrupt:
         interrupted = True
@@ -113,6 +119,11 @@ def cmd_run(args):
 
     # 8. Print ranking
     print_ranking_table(Path(args.history_file))
+
+    if failed_models:
+        print(f"\nFailed models ({len(failed_models)}):")
+        for m in failed_models:
+            print(f"  - {m}")
 
 
 def cmd_results(args):
