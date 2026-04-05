@@ -133,7 +133,7 @@ def start_llama_server(
 
     print(f"Starting llama-server on {gpu_config}: {' '.join(cmd)}")
     stderr_log = tempfile.NamedTemporaryFile(
-        mode="w", prefix="llama-stderr-", suffix=".log", delete=False
+        mode="wb", prefix="llama-stderr-", suffix=".log", delete=False
     )
     process = subprocess.Popen(
         cmd,
@@ -193,12 +193,14 @@ def _print_stderr_log(process: subprocess.Popen):
     if not log_path:
         return
     try:
-        with open(log_path) as f:
-            lines = f.readlines()
+        with open(log_path, "rb") as f:
+            data = f.read()
+        text = data.decode("utf-8", errors="replace")
+        lines = text.splitlines()
         tail = lines[-20:] if len(lines) > 20 else lines
         if tail:
             print("--- llama-server stderr ---")
-            print("".join(tail).rstrip())
+            print("\n".join(tail))
             print("---")
     except OSError:
         pass
