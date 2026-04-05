@@ -76,6 +76,7 @@ def cmd_run(args):
                     flash_attn=not args.no_flash_attn,
                     jinja=not args.no_jinja,
                     tensor_split=args.tensor_split,
+                    extra_args=args.server_args,
                 )
 
                 # 4. Health check
@@ -98,6 +99,8 @@ def cmd_run(args):
                     "scores": scores,
                     "elapsed_seconds": elapsed,
                 }
+                if args.server_args:
+                    entry["server_args"] = args.server_args
                 save_result(entry, Path(args.history_file))
                 print(f"Results saved for {filename}")
 
@@ -187,6 +190,10 @@ def main():
     run_parser.add_argument(
         "--no-jinja", action="store_true",
         help="Disable Jinja template support (enabled by default)",
+    )
+    run_parser.add_argument(
+        "--server-args", default=None,
+        help="Extra llama-server arguments (e.g. '--temp 0 --top-k 50')",
     )
     run_parser.add_argument(
         "--tokenizer", default=None,

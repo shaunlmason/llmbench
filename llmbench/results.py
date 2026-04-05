@@ -135,7 +135,8 @@ def print_ranking_table(history_file: Path = HISTORY_FILE, as_json: bool = False
             time_str = "-"
             eff_str = "-"
 
-        row = [model, gpu, ctx, lim, f"{composite:.4f}", time_str, eff_str]
+        server_args = entry.get("server_args", "")
+        row = [model, gpu, ctx, lim, f"{composite:.4f}", time_str, eff_str, server_args]
 
         for task in all_tasks:
             metrics = entry["_display_scores"].get(task, {})
@@ -145,7 +146,7 @@ def print_ranking_table(history_file: Path = HISTORY_FILE, as_json: bool = False
         rows.append(row)
 
     # Short display names for column headers
-    headers = ["Model", "GPU", "Ctx", "N", "Avg", "Time", "Eff"] + [_short_name(t) for t in all_tasks]
+    headers = ["Model", "GPU", "Ctx", "N", "Avg", "Time", "Eff", "Args"] + [_short_name(t) for t in all_tasks]
     print()
     print(tabulate(rows, headers=headers, tablefmt="simple"))
     print()

@@ -101,6 +101,7 @@ def start_llama_server(
     flash_attn: bool = True,
     jinja: bool = True,
     tensor_split: str = "3,1",
+    extra_args: str | None = None,
 ) -> subprocess.Popen:
     """Start llama-server with the given model and GPU configuration."""
     if not wait_for_port_release(port):
@@ -131,6 +132,9 @@ def start_llama_server(
     elif gpu_config == "both":
         env["CUDA_VISIBLE_DEVICES"] = "0,1"
         cmd.extend(["--tensor-split", tensor_split])
+
+    if extra_args:
+        cmd.extend(extra_args.split())
 
     print(f"Starting llama-server on {gpu_config}: {' '.join(cmd)}")
     stderr_log = tempfile.NamedTemporaryFile(
