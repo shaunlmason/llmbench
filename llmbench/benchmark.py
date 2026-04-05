@@ -15,6 +15,7 @@ os.environ["HF_ALLOW_CODE_EVAL"] = "1"
 # Map GGUF filename prefixes to HuggingFace tokenizer repos
 TOKENIZER_MAP = {
     "Qwen3.5-": "Qwen/Qwen3.5-4B-Base",
+    "Qwen3-Coder-": "Qwen/Qwen3-Coder-0.6B",
     "Qwen3-": "Qwen/Qwen3-0.6B",
     "Qwen2.5-Coder-": "Qwen/Qwen2.5-Coder-0.5B-Instruct",
     "Qwen2.5-": "Qwen/Qwen2.5-0.5B",
@@ -23,6 +24,11 @@ TOKENIZER_MAP = {
     "Mistral-": "mistralai/Mistral-7B-Instruct-v0.3",
     "Llama-3": "meta-llama/Llama-3.2-1B",
     "Phi-": "microsoft/Phi-3-mini-4k-instruct",
+    "nvidia_Nemotron-": "nvidia/Nemotron-3-Nano-30B-A3B",
+    "Nemotron-": "nvidia/Nemotron-3-Nano-30B-A3B",
+    "DeepSeek-Coder-V2": "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
+    "GLM-Z1-": "THUDM/GLM-Z1-32B-0414",
+    "GLM-4-": "THUDM/glm-4-9b",
 }
 
 
