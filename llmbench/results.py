@@ -77,21 +77,47 @@ def print_ranking_table(history_file: Path = HISTORY_FILE, as_json: bool = False
         print(json.dumps(history, indent=2))
         return
 
-    # Collect all task names across all entries for column headers
+    # Aggregate scores: collapse subtasks (e.g. minerva_math_algebra) into parent group
+    aggregated = []
+    for entry in history:
+        scores = entry.get("scores", {})
+        collapsed = {}
+        groups = {}
+        for task, metrics in scores.items():
+            # Check if this is a subtask (e.g. minerva_math_algebra -> minerva_math)
+            parent = _find_parent_group(task)
+            if parent:
+                groups.setdefault(parent, [])
+                score = _get_primary_score(task, metrics)
+                if score is not None:
+                    groups[parent].append(score)
+            else:
+                collapsed[task] = metrics
+        # Average subtask scores into group score
+        for group, sub_scores in groups.items():
+            if sub_scores:
+                avg = sum(sub_scores) / len(sub_scores)
+                collapsed[group] = {"_avg": round(avg, 4)}
+        aggregated.append({**entry, "_display_scores": collapsed})
+
+    # Collect display task names
     all_tasks = []
     seen = set()
-    for entry in history:
-        for task in entry.get("scores", {}):
+    for entry in aggregated:
+        for task in entry["_display_scores"]:
             if task not in seen:
                 all_tasks.append(task)
                 seen.add(task)
 
     # Build table rows sorted by composite score (descending)
     rows = []
-    for entry in sorted(history, key=lambda e: e.get("composite_score", 0), reverse=True):
+    for entry in sorted(aggregated, key=lambda e: e.get("composite_score", 0), reverse=True):
         model = entry.get("model", "unknown")
         if ":" in model:
             model = model.split(":")[1]
+        # Trim .gguf suffix
+        if model.endswith(".gguf"):
+            model = model[:-5]
 
         gpu = entry.get("gpu_config", "?")
         ctx = entry.get("context_length", "?")
@@ -100,16 +126,48 @@ def print_ranking_table(history_file: Path = HISTORY_FILE, as_json: bool = False
         row = [model, gpu, ctx, f"{composite:.4f}"]
 
         for task in all_tasks:
-            metrics = entry.get("scores", {}).get(task, {})
+            metrics = entry["_display_scores"].get(task, {})
             score = _get_primary_score(task, metrics)
             row.append(f"{score:.3f}" if score is not None else "-")
 
         rows.append(row)
 
-    headers = ["Model", "GPU", "Ctx", "Score"] + all_tasks
+    # Short display names for column headers
+    headers = ["Model", "GPU", "Ctx", "Avg"] + [_short_name(t) for t in all_tasks]
     print()
     print(tabulate(rows, headers=headers, tablefmt="simple"))
     print()
+
+
+# Known task groups — subtasks will be collapsed into the parent
+_TASK_GROUPS = ["minerva_math"]
+
+
+def _find_parent_group(task: str) -> str | None:
+    """If task is a subtask of a known group, return the group name."""
+    for group in _TASK_GROUPS:
+        if task.startswith(group + "_"):
+            return group
+    return None
+
+
+# Short display names for table headers
+_SHORT_NAMES = {
+    "humaneval": "human",
+    "hellaswag": "hella",
+    "minerva_math": "math",
+    "gsm8k": "gsm8k",
+    "mbpp": "mbpp",
+    "mmlu": "mmlu",
+    "arc_easy": "arc_e",
+    "arc_challenge": "arc_c",
+    "truthfulqa_mc2": "tqa",
+    "winogrande": "wino",
+}
+
+
+def _short_name(task: str) -> str:
+    return _SHORT_NAMES.get(task, task)
 
 
 def _get_primary_score(task: str, metrics: dict) -> float | None:
