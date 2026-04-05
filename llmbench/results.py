@@ -13,6 +13,7 @@ PRIMARY_METRICS = {
     "humaneval": "pass@1",
     "mbpp": "pass@1",
     "gsm8k": "exact_match",
+    "minerva_math": "exact_match",
     "mmlu": "acc",
     "arc_easy": "acc_norm",
     "arc_challenge": "acc_norm",
