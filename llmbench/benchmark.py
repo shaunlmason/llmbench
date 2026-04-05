@@ -135,9 +135,8 @@ def _task_requires_prompt_logprobs(tasks: list[str]) -> dict[str, bool]:
                 if config is not None:
                     output_type = getattr(config, "output_type", None)
             if output_type is None:
-                raise RuntimeError(
-                    f"Could not determine output type for task '{task_name}'."
-                )
+                # Task groups (e.g. minerva_math) don't have output_type; skip them
+                continue
             if output_type in LOGPROB_OUTPUT_TYPES:
                 requires_prompt_logprobs = True
                 break
