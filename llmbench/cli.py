@@ -91,6 +91,7 @@ def cmd_run(args):
                 "model": model_ref,
                 "gpu_config": args.gpu,
                 "context_length": args.context_length,
+                "limit": args.limit,
                 "scores": scores,
                 "elapsed_seconds": elapsed,
             }
