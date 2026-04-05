@@ -25,19 +25,33 @@ TOKENIZER_MAP = {
 }
 
 
+def _repo_exists(repo_id: str) -> bool:
+    """Check if a HuggingFace repo exists by hitting the API."""
+    try:
+        resp = requests.head(
+            f"https://huggingface.co/api/models/{repo_id}",
+            timeout=10,
+        )
+        return resp.status_code == 200
+    except requests.RequestException:
+        return False
+
+
 def _resolve_tokenizer(repo_id: str, model_name: str, tokenizer: str | None) -> str:
     """Resolve a HuggingFace tokenizer repo.
 
     Priority:
     1. Explicit --tokenizer flag
-    2. Strip -GGUF from the GGUF repo ID (e.g. Jackrong/Foo-GGUF -> Jackrong/Foo)
+    2. Strip -GGUF from the GGUF repo ID (if the resulting repo exists)
     3. Filename prefix map as last resort
     """
     if tokenizer:
         return tokenizer
     # Most GGUF repos have a non-GGUF sibling with the tokenizer
     if repo_id.endswith("-GGUF"):
-        return repo_id.removesuffix("-GGUF")
+        candidate = repo_id.removesuffix("-GGUF")
+        if _repo_exists(candidate):
+            return candidate
     for prefix, repo in TOKENIZER_MAP.items():
         if model_name.startswith(prefix):
             return repo
