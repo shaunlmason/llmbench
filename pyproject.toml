@@ -2,6 +2,7 @@
 name = "llmbench"
 version = "0.1.0"
 description = "Fast local LLM benchmarking for llama-server"
+license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
     "lm-eval[api,math]>=0.4.4",

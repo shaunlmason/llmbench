@@ -1,6 +1,6 @@
 # llmbench
 
-Fast local LLM benchmarking for llama-server. Evaluates GGUF models on general reasoning (HellaSwag) and coding (HumanEval), with results tracked and ranked over time.
+Fast local LLM benchmarking for llama-server. Evaluates GGUF models on coding, math, and reasoning tasks, with results tracked and ranked over time.
 
 ## Install
 
@@ -24,6 +24,12 @@ llmbench run \
   --gpu both \
   --context-length 8192
 
+# Run with specific tasks
+llmbench run \
+  --models "MaziyarPanahi/Qwen3-8B-GGUF:Qwen3-8B.Q6_K.gguf" \
+  --gpu gpu0 \
+  --tasks hellaswag,humaneval,gsm8k,minerva_math
+
 # View rankings
 llmbench results
 
@@ -42,7 +48,24 @@ llmbench results --json
 | `--limit` | `200` | Samples per task (speed knob) |
 | `--models-dir` | `~/models` | GGUF storage directory |
 | `--port` | `8080` | llama-server port |
+| `--tokenizer` | auto-detected | HuggingFace tokenizer repo ID |
 | `--no-restore` | off | Skip restarting original services |
+
+## Supported tasks
+
+| Task | Type | Metric | Logprobs? |
+|------|------|--------|-----------|
+| `hellaswag` | Commonsense reasoning | `acc_norm` | Yes |
+| `humaneval` | Code generation (164 tasks) | `pass@1` | No |
+| `mbpp` | Code generation (500 tasks) | `pass@1` | No |
+| `gsm8k` | Grade school math | `exact_match` | No |
+| `minerva_math` | Competition math | `exact_match` | No |
+| `mmlu` | Multitask knowledge | `acc` | Yes |
+| `arc_easy` | Science reasoning (easy) | `acc_norm` | Yes |
+| `arc_challenge` | Science reasoning (hard) | `acc_norm` | Yes |
+| `winogrande` | Coreference resolution | `acc` | Yes |
+
+Tasks marked "Logprobs: Yes" require the server to return prompt logprobs in legacy format. If the server doesn't support this, those tasks are automatically skipped.
 
 ## How it works
 
@@ -55,3 +78,7 @@ For each model, llmbench:
 6. Restores the original services
 
 Results are ranked by composite score (average of primary metrics across tasks).
+
+## License
+
+[MIT](LICENSE)
