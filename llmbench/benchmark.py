@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import requests
@@ -111,20 +112,26 @@ def run_benchmark(
 
     # Run each task individually so we can report progress
     all_scores = {}
+    total_start = time.monotonic()
     for i, task in enumerate(runnable_tasks, 1):
         print(f"\n[{i}/{len(runnable_tasks)}] Running {task}...")
+        task_start = time.monotonic()
         try:
             scores = _run_via_library(port, [task], limit, model_name, tokenizer_repo)
         except Exception as e:
             print(f"Library invocation failed ({e}), falling back to CLI...")
             scores = _run_via_cli(port, [task], limit, model_name, tokenizer_repo)
+        elapsed = time.monotonic() - task_start
         all_scores.update(scores)
         # Print score for this task
         for task_name, metrics in scores.items():
             for k, v in metrics.items():
                 if isinstance(v, (int, float)) and "stderr" not in k:
-                    print(f"  {task_name}: {v:.4f}")
+                    print(f"  {task_name}: {v:.4f} ({elapsed:.0f}s)")
                     break
+    total_elapsed = round(time.monotonic() - total_start)
+    all_scores["_elapsed_seconds"] = total_elapsed
+    print(f"\nTotal benchmark time: {total_elapsed // 60}m {total_elapsed % 60}s")
     return all_scores
 
 

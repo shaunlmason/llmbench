@@ -78,12 +78,14 @@ def cmd_run(args):
             scores = run_benchmark(args.port, tasks, args.limit, filename, repo_id, args.tokenizer)
 
             # 6. Store result
+            elapsed = scores.pop("_elapsed_seconds", None)
             entry = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "model": model_ref,
                 "gpu_config": args.gpu,
                 "context_length": args.context_length,
                 "scores": scores,
+                "elapsed_seconds": elapsed,
             }
             save_result(entry, Path(args.history_file))
             print(f"Results saved for {filename}")
