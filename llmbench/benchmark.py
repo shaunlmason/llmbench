@@ -82,6 +82,19 @@ LOGPROB_OUTPUT_TYPES = {
     "multiple_choice",
 }
 
+# Task groups and their subtask counts — used to divide --limit evenly
+_GROUP_SUBTASK_COUNTS = {
+    "minerva_math": 7,  # algebra, counting_and_prob, geometry, intermediate_algebra, number_theory, prealgebra, precalculus
+}
+
+
+def _effective_limit(task: str, limit: int) -> int:
+    """For group tasks, divide limit by subtask count so total stays near the requested limit."""
+    subtask_count = _GROUP_SUBTASK_COUNTS.get(task)
+    if subtask_count:
+        return max(1, limit // subtask_count)
+    return limit
+
 
 def run_benchmark(
     port: int,
@@ -114,13 +127,15 @@ def run_benchmark(
     all_scores = {}
     total_start = time.monotonic()
     for i, task in enumerate(runnable_tasks, 1):
-        print(f"\n[{i}/{len(runnable_tasks)}] Running {task}...")
+        task_limit = _effective_limit(task, limit)
+        limit_note = f", limit={task_limit}" if task_limit != limit else ""
+        print(f"\n[{i}/{len(runnable_tasks)}] Running {task}{limit_note}...")
         task_start = time.monotonic()
         try:
-            scores = _run_via_library(port, [task], limit, model_name, tokenizer_repo)
+            scores = _run_via_library(port, [task], task_limit, model_name, tokenizer_repo)
         except Exception as e:
             print(f"Library invocation failed ({e}), falling back to CLI...")
-            scores = _run_via_cli(port, [task], limit, model_name, tokenizer_repo)
+            scores = _run_via_cli(port, [task], task_limit, model_name, tokenizer_repo)
         elapsed = time.monotonic() - task_start
         all_scores.update(scores)
         # Print score for this task
