@@ -1,16 +1,47 @@
+import re
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 from huggingface_hub import hf_hub_download
 from huggingface_hub.errors import HfHubHTTPError
 
 
+# Matches URLs like:
+#   https://huggingface.co/{owner}/{repo}/resolve/{branch}/{filename}
+#   https://huggingface.co/{owner}/{repo}/blob/{branch}/{filename}
+_HF_URL_PATH_RE = re.compile(
+    r"^/(?P<owner>[^/]+)/(?P<repo>[^/]+)/(?:resolve|blob)/[^/]+/(?P<filename>.+)$"
+)
+
+
 def parse_model_ref(model_ref: str) -> tuple[str, str]:
-    """Parse 'repo_id:filename' into (repo_id, filename)."""
+    """Parse a model reference into (repo_id, filename).
+
+    Accepts:
+    - 'owner/repo:filename.gguf'
+    - 'https://huggingface.co/owner/repo/resolve/main/filename.gguf[?download=true]'
+    - 'https://huggingface.co/owner/repo/blob/main/filename.gguf'
+    """
+    # HuggingFace URL form
+    if model_ref.startswith(("http://", "https://")):
+        parsed = urlparse(model_ref)
+        if parsed.netloc not in ("huggingface.co", "www.huggingface.co"):
+            print(f"Error: Only huggingface.co URLs are supported, got '{parsed.netloc}'")
+            sys.exit(1)
+        match = _HF_URL_PATH_RE.match(parsed.path)
+        if not match:
+            print(f"Error: Could not parse HuggingFace URL '{model_ref}'")
+            print("Expected format: https://huggingface.co/owner/repo/resolve/main/filename.gguf")
+            sys.exit(1)
+        return f"{match['owner']}/{match['repo']}", match["filename"]
+
+    # owner/repo:filename form
     if ":" not in model_ref:
         print(f"Error: Invalid model reference '{model_ref}'")
-        print("Expected format: 'owner/repo:filename.gguf'")
-        print("Example: 'bartowski/Qwen2.5-7B-Instruct-GGUF:Qwen2.5-7B-Instruct-Q4_K_M.gguf'")
+        print("Expected one of:")
+        print("  owner/repo:filename.gguf")
+        print("  https://huggingface.co/owner/repo/resolve/main/filename.gguf")
         sys.exit(1)
     repo_id, filename = model_ref.split(":", 1)
     if not repo_id or not filename:
