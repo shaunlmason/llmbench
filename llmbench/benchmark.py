@@ -14,6 +14,9 @@ os.environ["HF_ALLOW_CODE_EVAL"] = "1"
 
 # Map GGUF filename prefixes to HuggingFace tokenizer repos
 TOKENIZER_MAP = {
+    "Bonsai-": "Qwen/Qwen3-0.6B",
+    "Qwopus3.5-": "Qwen/Qwen3.5-4B-Base",
+    "Qwen_Qwen3.5-": "Qwen/Qwen3.5-4B-Base",
     "Qwen3.5-": "Qwen/Qwen3.5-4B-Base",
     "Qwen3-Coder-": "Qwen/Qwen3-Coder-0.6B",
     "Qwen3-": "Qwen/Qwen3-0.6B",
@@ -55,8 +58,9 @@ def _resolve_tokenizer(repo_id: str, model_name: str, tokenizer: str | None) -> 
     if tokenizer:
         return tokenizer
     # Most GGUF repos have a non-GGUF sibling with the tokenizer
-    if repo_id.endswith("-GGUF"):
-        candidate = repo_id.removesuffix("-GGUF")
+    repo_upper = repo_id.upper()
+    if repo_upper.endswith("-GGUF"):
+        candidate = repo_id[:-5]  # strip last 5 chars (-GGUF/-gguf/etc)
         if _repo_exists(candidate):
             return candidate
     for prefix, repo in TOKENIZER_MAP.items():
