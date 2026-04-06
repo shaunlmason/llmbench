@@ -305,6 +305,7 @@ def _run_via_library(
         f"tokenizer_backend=huggingface,"
         f"tokenizer={tokenizer_repo},"
         f"num_concurrent=4,"
+        f"max_gen_toks=512,"
         f"timeout=600"
     )
 
@@ -344,6 +345,7 @@ def _run_via_cli(
                 f"tokenizer_backend=huggingface,"
                 f"tokenizer={tokenizer_repo},"
                 f"num_concurrent=4,"
+                f"max_gen_toks=512,"
                 f"timeout=600"
             ),
             "--tasks", ",".join(tasks),
