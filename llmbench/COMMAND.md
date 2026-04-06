@@ -2,15 +2,33 @@
 
 llmbench run \
 --models \
-"https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-UD-Q8_K_XL.gguf" \
-"https://huggingface.co/bartowski/google_gemma-4-26B-A4B-it-GGUF/resolve/main/google_gemma-4-26B-A4B-it-Q4_K_M.gguf" \
-"https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-UD-Q4_K_XL.gguf" \
-"https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-Q4_K_XL.gguf" \
 --gpu gpu0 \
 --context-length 8192 \
 --cache-type-k q4_0 \
 --cache-type-v q4_0 \
 --tasks humaneval,gsm8k,minerva_math
+
+"https://huggingface.co/bigatuna/Qwen3.5-27b-Sushi-Coder-RL-GGUF/resolve/main/qwen35-codeforces-27b-rl-step25-Q4_K_M.gguf" \
+"https://huggingface.co/juanml82/Qwen3.5-27B-heretic-gguf/resolve/main/Qwen3.5-27B-heretic-Q5_K_M.gguf" \
+"https://huggingface.co/unsloth/gpt-oss-20b-GGUF/resolve/main/gpt-oss-20b-UD-Q8_K_XL.gguf" \
+"https://huggingface.co/bartowski/starcoder2-15b-instruct-v0.1-GGUF/resolve/main/starcoder2-15b-instruct-v0.1-Q8_0.gguf" \
+"https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/Devstral-Small-2-24B-Instruct-2512-UD-Q5_K_XL.gguf" \
+
+"https://huggingface.co/unsloth/Nemotron-3-Nano-30B-A3B-GGUF/resolve/main/Nemotron-3-Nano-30B-A3B-UD-Q3_K_XL.gguf"
+
+llmbench run \
+ --models \
+ "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-UD-Q8_K_XL.gguf" \
+ "https://huggingface.co/bartowski/google_gemma-4-26B-A4B-it-GGUF/resolve/main/google_gemma-4-26B-A4B-it-Q4_K_M.gguf" \
+ "https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-UD-Q4_K_XL.gguf" \
+ "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-Q4_K_XL.gguf" \
+ --gpu gpu0 \
+ --context-length 8192 \
+ --cache-type-k q4_0 \
+ --cache-type-v q4_0 \
+ --tasks humaneval,gsm8k,minerva_math \
+ --chat \
+ --no-think
 
 ## Completed models at q4_0
 
@@ -22,6 +40,7 @@ llmbench run \
 "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive:Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf" \
 "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive:Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q6_K.gguf" \
 "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive:Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q8_0.gguf" \
+"https://huggingface.co/Jackrong/Qwopus3.5-27B-v3-GGUF/resolve/main/Qwopus3.5-27B-v3-Q4_K_M.gguf" \
 "Jackrong/Qwopus3.5-27B-v3-GGUF:Qwopus3.5-27B-v3-Q5_K_M.gguf" \
 "Jackrong/Qwopus3.5-9B-v3-GGUF:Qwen3.5-9B.Q8_0.gguf" \
 "matteogeniaccio/GLM-Z1-32B-0414-GGUF-fixed:GLM-Z1-32B-0414-Q4_K_M.gguf" \
@@ -37,3 +56,5 @@ llmbench run \
 # Completed but I want to run with both GPUs?
 
 "unsloth/Qwen3.5-27B-GGUF:Qwen3.5-27B-Q5_K_M.gguf" \
+
+https://huggingface.co/Jackrong/Qwopus3.5-27B-v3-GGUF/resolve/main/Qwopus3.5-27B-v3-Q6_K.gguf?download=true

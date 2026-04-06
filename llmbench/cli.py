@@ -89,7 +89,7 @@ def cmd_run(args):
                 print(f"\nBenchmarking {filename} ({args.gpu}, ctx={args.context_length})...")
                 scores = run_benchmark(
                     args.port, tasks, args.limit, filename, repo_id,
-                    args.tokenizer, chat=args.chat,
+                    args.tokenizer, chat=args.chat, system=args.system,
                 )
 
                 # 6. Store result
@@ -109,6 +109,8 @@ def cmd_run(args):
                 }
                 if args.server_args:
                     entry["server_args"] = args.server_args
+                if args.system:
+                    entry["system"] = args.system
                 save_result(entry, Path(args.history_file))
                 print(f"Results saved for {filename}")
 
@@ -213,6 +215,12 @@ def main():
         help="Disable reasoning/thinking on reasoning models so answers fit in the "
              "task token budget. Passes --reasoning-budget 0 --reasoning-format none "
              "to llama-server.",
+    )
+    run_parser.add_argument(
+        "--system", default=None,
+        help="System instruction to prepend to every prompt (chat mode only). Useful for "
+             "chat models that need to be told to output bare answers / no markdown / "
+             "use specific answer format.",
     )
     run_parser.add_argument(
         "--tokenizer", default=None,

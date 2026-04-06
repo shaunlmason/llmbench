@@ -116,6 +116,7 @@ def run_benchmark(
     repo_id: str,
     tokenizer: str | None = None,
     chat: bool = False,
+    system: str | None = None,
 ) -> dict:
     """Run lm-evaluation-harness against the local llama-server endpoint.
 
@@ -126,6 +127,9 @@ def run_benchmark(
     print(f"Using tokenizer: {tokenizer_repo}")
     if chat:
         print("Mode: chat completions (/v1/chat/completions)")
+    if system:
+        preview = system if len(system) <= 80 else system[:77] + "..."
+        print(f"System instruction: {preview}")
 
     runnable_tasks, skipped_tasks = _split_tasks_by_api_capability(port, tasks, model_name, chat)
     if skipped_tasks:
@@ -147,10 +151,10 @@ def run_benchmark(
         print(f"\n[{i}/{len(runnable_tasks)}] Running {task}{limit_note}...")
         task_start = time.monotonic()
         try:
-            scores = _run_via_library(port, [task], task_limit, model_name, tokenizer_repo, chat)
+            scores = _run_via_library(port, [task], task_limit, model_name, tokenizer_repo, chat, system)
         except Exception as e:
             print(f"Library invocation failed ({e}), falling back to CLI...")
-            scores = _run_via_cli(port, [task], task_limit, model_name, tokenizer_repo, chat)
+            scores = _run_via_cli(port, [task], task_limit, model_name, tokenizer_repo, chat, system)
         elapsed = time.monotonic() - task_start
         all_scores.update(scores)
         # Print score for this task
@@ -289,6 +293,7 @@ def _run_via_library(
     model_name: str,
     tokenizer_repo: str,
     chat: bool = False,
+    system: str | None = None,
 ) -> dict:
     """Use lm_eval.simple_evaluate() directly."""
     import lm_eval
@@ -312,6 +317,7 @@ def _run_via_library(
         log_samples=False,
         confirm_run_unsafe_code=True,
         apply_chat_template=chat,
+        system_instruction=system,
     )
 
     return _extract_scores(results["results"])
@@ -324,6 +330,7 @@ def _run_via_cli(
     model_name: str,
     tokenizer_repo: str,
     chat: bool = False,
+    system: str | None = None,
 ) -> dict:
     """Fall back to lm_eval CLI and parse JSON output."""
     model_type, base_url = _model_type_and_url(port, chat)
@@ -346,6 +353,8 @@ def _run_via_cli(
         ]
         if chat:
             cmd.append("--apply_chat_template")
+        if system:
+            cmd.extend(["--system_instruction", system])
 
         print(f"Running: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
