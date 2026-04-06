@@ -125,9 +125,9 @@ def start_llama_server(
         cmd.append("--jinja")
     if no_think:
         # Disable reasoning so reasoning models jump straight to the answer.
-        # Combined with --reasoning-format none, ensures any residual thoughts
-        # land in message.content rather than message.reasoning_content.
-        cmd.extend(["--reasoning-budget", "0", "--reasoning-format", "none"])
+        # --reasoning off is the direct disable; --reasoning-format none ensures
+        # any residual thoughts land in message.content rather than reasoning_content.
+        cmd.extend(["--reasoning", "off", "--reasoning-format", "none"])
 
     env = os.environ.copy()
 
