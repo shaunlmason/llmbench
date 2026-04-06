@@ -138,11 +138,7 @@ def print_ranking_table(
     # Build table rows
     rows = []
     for entry in sorted_entries:
-        model = entry.get("model", "unknown")
-        if ":" in model:
-            model = model.split(":")[1]
-        if model.endswith(".gguf"):
-            model = model[:-5]
+        model = _display_model_name(entry.get("model", "unknown"))
         if entry.get("chat"):
             model = f"{model} [chat]"
 
@@ -216,6 +212,22 @@ _SHORT_NAMES = {
 
 def _short_name(task: str) -> str:
     return _SHORT_NAMES.get(task, task)
+
+
+def _display_model_name(model_ref: str) -> str:
+    """Extract a short display name from any supported model ref form."""
+    # HuggingFace URL form: take last path segment, strip query string
+    if model_ref.startswith(("http://", "https://")):
+        path = model_ref.split("?", 1)[0]
+        name = path.rstrip("/").rsplit("/", 1)[-1]
+    # owner/repo:filename form
+    elif ":" in model_ref:
+        name = model_ref.split(":", 1)[1]
+    else:
+        name = model_ref
+    if name.endswith(".gguf"):
+        name = name[:-5]
+    return name
 
 
 def _get_primary_score(task: str, metrics: dict) -> float | None:
