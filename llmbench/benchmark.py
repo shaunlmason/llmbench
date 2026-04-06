@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -10,6 +11,95 @@ import requests
 
 # Allow HumanEval code execution
 os.environ["HF_ALLOW_CODE_EVAL"] = "1"
+
+
+# Reasoning marker formats that llama-server doesn't strip on its own.
+# These leak into chat completion responses and break code-extraction regexes
+# in lm-eval (humaneval_instruct/mbpp_instruct), tanking scores even when the
+# model answers correctly. The instruct task filters scan for ``` markdown
+# fences; if the response starts with channel markers, the fence detection
+# misfires and either returns empty or includes garbage.
+_REASONING_PATTERNS = [
+    # gemma-4 channel format: <|channel>thought\n<channel|>actual content
+    # Note the asymmetric brackets: open is <|channel> close is <channel|>.
+    re.compile(r"<\|channel\|?>\s*thought.*?<channel\|?>\s*", re.DOTALL),
+    re.compile(r"<channel\|?>\s*thought.*?<\|channel\|?>\s*", re.DOTALL),
+
+    # DeepSeek-R1 / Qwopus / Qwen3-with-reasoning / QwQ
+    re.compile(r"<think>.*?</think>\s*", re.DOTALL),
+
+    # Generic reasoning tag formats some fine-tunes use
+    re.compile(r"<reasoning>.*?</reasoning>\s*", re.DOTALL),
+    re.compile(r"<thinking>.*?</thinking>\s*", re.DOTALL),
+
+    # OpenAI harmony format (gpt-oss): strip the analysis and commentary
+    # channels entirely; keep only the final channel.
+    # Format: <|start|>assistant<|channel|>analysis<|message|>...<|end|>
+    re.compile(
+        r"<\|start\|>[^<]*?<\|channel\|>analysis<\|message\|>.*?<\|end\|>\s*",
+        re.DOTALL,
+    ),
+    re.compile(
+        r"<\|start\|>[^<]*?<\|channel\|>commentary<\|message\|>.*?<\|end\|>\s*",
+        re.DOTALL,
+    ),
+    # For the final channel, strip just the wrapper so the inner content is exposed.
+    re.compile(
+        r"<\|start\|>[^<]*?<\|channel\|>final<\|message\|>",
+        re.DOTALL,
+    ),
+    # Stray harmony control tokens
+    re.compile(r"<\|return\|>\s*", re.DOTALL),
+    re.compile(r"<\|end\|>\s*", re.DOTALL),
+]
+
+
+def _strip_reasoning_markers(text):
+    """Remove reasoning/thinking blocks from a model response string."""
+    if not isinstance(text, str):
+        return text
+    for pattern in _REASONING_PATTERNS:
+        text = pattern.sub("", text)
+    return text.lstrip()
+
+
+def _install_reasoning_stripper():
+    """Patch lm-eval's LocalChatCompletion.parse_generations to strip reasoning
+    markers from responses before they reach lm-eval's task filters.
+
+    Without this, models that emit reasoning channels (gemma-4 <|channel>thought,
+    Qwopus <think>, gpt-oss harmony, etc.) score 0 on chat-mode code benchmarks
+    because the markers prefix the actual code and break extraction regexes
+    (e.g. humaneval_instruct's filter scans for ``` fences and won't find them
+    if the response starts with a channel marker).
+    """
+    try:
+        from lm_eval.models.openai_completions import LocalChatCompletion
+    except ImportError:
+        print(
+            "Warning: could not locate lm_eval.models.openai_completions.LocalChatCompletion. "
+            "Reasoning marker stripping disabled — chat-mode code benchmarks may score 0 "
+            "for reasoning models."
+        )
+        return
+
+    if getattr(LocalChatCompletion, "_llmbench_reasoning_patched", False):
+        return  # Already patched
+
+    # parse_generations is a @staticmethod taking (outputs, **kwargs).
+    # Accessing it via the class unwraps the descriptor, so we get the raw function.
+    original = LocalChatCompletion.parse_generations
+
+    def patched_parse_generations(outputs, **kwargs):
+        results = original(outputs, **kwargs)
+        if isinstance(results, list):
+            return [_strip_reasoning_markers(r) for r in results]
+        return _strip_reasoning_markers(results)
+
+    # Re-wrap as staticmethod so Python doesn't try to bind self when called via instance.
+    LocalChatCompletion.parse_generations = staticmethod(patched_parse_generations)
+    LocalChatCompletion._llmbench_reasoning_patched = True
+    print("Installed reasoning marker stripper for chat-mode benchmarks")
 
 
 # Map GGUF filename prefixes to HuggingFace tokenizer repos
@@ -99,6 +189,15 @@ _GROUP_SUBTASK_COUNTS = {
     "minerva_math": 7,  # algebra, counting_and_prob, geometry, intermediate_algebra, number_theory, prealgebra, precalculus
 }
 
+# In chat mode, completion-style code tasks fail because their extraction
+# regexes assume the model continues the function body. The _instruct variants
+# expect a fenced markdown code block, which is what chat-tuned models naturally
+# emit. Auto-swap when chat mode is on.
+_CHAT_TASK_SWAPS = {
+    "humaneval": "humaneval_instruct",
+    "mbpp": "mbpp_instruct",
+}
+
 
 def _effective_limit(task: str, limit: int) -> int:
     """For group tasks, divide limit by subtask count so total stays near the requested limit."""
@@ -106,6 +205,34 @@ def _effective_limit(task: str, limit: int) -> int:
     if subtask_count:
         return max(1, limit // subtask_count)
     return limit
+
+
+def _swap_chat_tasks(tasks: list[str], chat: bool) -> tuple[list[str], dict[str, str]]:
+    """In chat mode, swap completion-style code tasks for their _instruct variants.
+
+    Returns (swapped_tasks, restore_map) where restore_map[swapped] = original
+    so callers can rename score keys back to the original task names for display.
+    """
+    if not chat:
+        return list(tasks), {}
+    swapped_tasks = []
+    restore_map = {}
+    for task in tasks:
+        replacement = _CHAT_TASK_SWAPS.get(task)
+        if replacement:
+            swapped_tasks.append(replacement)
+            restore_map[replacement] = task
+            print(f"Chat mode: swapping {task} -> {replacement} (chat-aware variant)")
+        else:
+            swapped_tasks.append(task)
+    return swapped_tasks, restore_map
+
+
+def _restore_swapped_score_keys(scores: dict, restore_map: dict[str, str]) -> dict:
+    """Rename swapped task names in a scores dict back to their originals."""
+    if not restore_map:
+        return scores
+    return {restore_map.get(name, name): metrics for name, metrics in scores.items()}
 
 
 def run_benchmark(
@@ -142,6 +269,11 @@ def run_benchmark(
             f"Requested tasks: {details}"
         )
 
+    # Auto-swap completion-style code tasks (humaneval, mbpp) for their _instruct
+    # variants when running in chat mode. The instruct variants extract code from
+    # markdown fences, which is what chat-tuned models naturally produce.
+    runnable_tasks, restore_map = _swap_chat_tasks(runnable_tasks, chat)
+
     # Run each task individually so we can report progress
     all_scores = {}
     total_start = time.monotonic()
@@ -155,6 +287,9 @@ def run_benchmark(
         except Exception as e:
             print(f"Library invocation failed ({e}), falling back to CLI...")
             scores = _run_via_cli(port, [task], task_limit, model_name, tokenizer_repo, chat, system)
+        # Rename swapped task names back to their originals so existing PRIMARY_METRICS,
+        # SHORT_NAMES, and history entries remain consistent across runs.
+        scores = _restore_swapped_score_keys(scores, restore_map)
         elapsed = time.monotonic() - task_start
         all_scores.update(scores)
         # Print score for this task
@@ -298,6 +433,9 @@ def _run_via_library(
     """Use lm_eval.simple_evaluate() directly."""
     import lm_eval
 
+    if chat:
+        _install_reasoning_stripper()
+
     model_type, base_url = _model_type_and_url(port, chat)
     model_args = (
         f"model={model_name},"
@@ -334,6 +472,8 @@ def _run_via_cli(
     system: str | None = None,
 ) -> dict:
     """Fall back to lm_eval CLI and parse JSON output."""
+    if chat:
+        _install_reasoning_stripper()
     model_type, base_url = _model_type_and_url(port, chat)
     with tempfile.TemporaryDirectory() as tmpdir:
         cmd = [
