@@ -102,6 +102,7 @@ def start_llama_server(
     jinja: bool = True,
     tensor_split: str = "3,1",
     extra_args: str | None = None,
+    no_think: bool = False,
 ) -> subprocess.Popen:
     """Start llama-server with the given model and GPU configuration."""
     if not wait_for_port_release(port):
@@ -122,6 +123,11 @@ def start_llama_server(
         cmd.extend(["-fa", "on"])
     if jinja:
         cmd.append("--jinja")
+    if no_think:
+        # Disable reasoning so reasoning models jump straight to the answer.
+        # Combined with --reasoning-format none, ensures any residual thoughts
+        # land in message.content rather than message.reasoning_content.
+        cmd.extend(["--reasoning-budget", "0", "--reasoning-format", "none"])
 
     env = os.environ.copy()
 

@@ -139,8 +139,13 @@ def print_ranking_table(
     rows = []
     for entry in sorted_entries:
         model = _display_model_name(entry.get("model", "unknown"))
+        tags = []
         if entry.get("chat"):
-            model = f"{model} [chat]"
+            tags.append("chat")
+        if entry.get("no_think"):
+            tags.append("nothink")
+        if tags:
+            model = f"{model} [{','.join(tags)}]"
 
         gpu = entry.get("gpu_config", "?")
         ctx = entry.get("context_length", "?")

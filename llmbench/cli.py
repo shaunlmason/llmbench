@@ -77,6 +77,7 @@ def cmd_run(args):
                     jinja=not args.no_jinja,
                     tensor_split=args.tensor_split,
                     extra_args=args.server_args,
+                    no_think=args.no_think,
                 )
 
                 # 4. Health check
@@ -102,6 +103,7 @@ def cmd_run(args):
                     "cache_type_k": args.cache_type_k,
                     "cache_type_v": args.cache_type_v,
                     "chat": args.chat,
+                    "no_think": args.no_think,
                     "scores": scores,
                     "elapsed_seconds": elapsed,
                 }
@@ -205,6 +207,12 @@ def main():
         "--chat", action="store_true",
         help="Use /v1/chat/completions with the model's chat template (for heavily "
              "instruction-tuned models). Skips logprob-based tasks like hellaswag/mmlu.",
+    )
+    run_parser.add_argument(
+        "--no-think", action="store_true",
+        help="Disable reasoning/thinking on reasoning models so answers fit in the "
+             "task token budget. Passes --reasoning-budget 0 --reasoning-format none "
+             "to llama-server.",
     )
     run_parser.add_argument(
         "--tokenizer", default=None,
