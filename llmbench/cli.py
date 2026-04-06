@@ -86,7 +86,10 @@ def cmd_run(args):
 
                 # 5. Run benchmarks
                 print(f"\nBenchmarking {filename} ({args.gpu}, ctx={args.context_length})...")
-                scores = run_benchmark(args.port, tasks, args.limit, filename, repo_id, args.tokenizer)
+                scores = run_benchmark(
+                    args.port, tasks, args.limit, filename, repo_id,
+                    args.tokenizer, chat=args.chat,
+                )
 
                 # 6. Store result
                 elapsed = scores.pop("_elapsed_seconds", None)
@@ -98,6 +101,7 @@ def cmd_run(args):
                     "limit": args.limit,
                     "cache_type_k": args.cache_type_k,
                     "cache_type_v": args.cache_type_v,
+                    "chat": args.chat,
                     "scores": scores,
                     "elapsed_seconds": elapsed,
                 }
@@ -196,6 +200,11 @@ def main():
     run_parser.add_argument(
         "--server-args", default=None,
         help="Extra llama-server arguments (e.g. '--temp 0 --top-k 50')",
+    )
+    run_parser.add_argument(
+        "--chat", action="store_true",
+        help="Use /v1/chat/completions with the model's chat template (for heavily "
+             "instruction-tuned models). Skips logprob-based tasks like hellaswag/mmlu.",
     )
     run_parser.add_argument(
         "--tokenizer", default=None,

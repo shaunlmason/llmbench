@@ -143,6 +143,8 @@ def print_ranking_table(
             model = model.split(":")[1]
         if model.endswith(".gguf"):
             model = model[:-5]
+        if entry.get("chat"):
+            model = f"{model} [chat]"
 
         gpu = entry.get("gpu_config", "?")
         ctx = entry.get("context_length", "?")

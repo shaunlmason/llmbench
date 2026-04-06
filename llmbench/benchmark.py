@@ -115,6 +115,7 @@ def run_benchmark(
     model_name: str,
     repo_id: str,
     tokenizer: str | None = None,
+    chat: bool = False,
 ) -> dict:
     """Run lm-evaluation-harness against the local llama-server endpoint.
 
@@ -123,8 +124,10 @@ def run_benchmark(
     """
     tokenizer_repo = _resolve_tokenizer(repo_id, model_name, tokenizer)
     print(f"Using tokenizer: {tokenizer_repo}")
+    if chat:
+        print("Mode: chat completions (/v1/chat/completions)")
 
-    runnable_tasks, skipped_tasks = _split_tasks_by_api_capability(port, tasks, model_name)
+    runnable_tasks, skipped_tasks = _split_tasks_by_api_capability(port, tasks, model_name, chat)
     if skipped_tasks:
         skipped = ", ".join(f"{name} ({reason})" for name, reason in skipped_tasks.items())
         print(f"Skipping unsupported tasks: {skipped}")
@@ -144,10 +147,10 @@ def run_benchmark(
         print(f"\n[{i}/{len(runnable_tasks)}] Running {task}{limit_note}...")
         task_start = time.monotonic()
         try:
-            scores = _run_via_library(port, [task], task_limit, model_name, tokenizer_repo)
+            scores = _run_via_library(port, [task], task_limit, model_name, tokenizer_repo, chat)
         except Exception as e:
             print(f"Library invocation failed ({e}), falling back to CLI...")
-            scores = _run_via_cli(port, [task], task_limit, model_name, tokenizer_repo)
+            scores = _run_via_cli(port, [task], task_limit, model_name, tokenizer_repo, chat)
         elapsed = time.monotonic() - task_start
         all_scores.update(scores)
         # Print score for this task
@@ -233,6 +236,7 @@ def _split_tasks_by_api_capability(
     port: int,
     tasks: list[str],
     model_name: str,
+    chat: bool = False,
 ) -> tuple[list[str], dict[str, str]]:
     """Filter out tasks that need prompt logprobs when the server cannot provide them."""
     task_requirements = _task_requires_prompt_logprobs(tasks)
@@ -243,6 +247,19 @@ def _split_tasks_by_api_capability(
     ]
     if not prompt_logprob_tasks:
         return list(tasks), {}
+
+    if chat:
+        # Chat completions endpoint never exposes echoed prompt logprobs.
+        skipped_tasks = {
+            task_name: "chat mode does not support logprob-based tasks"
+            for task_name in prompt_logprob_tasks
+        }
+        runnable_tasks = [
+            task_name
+            for task_name, requires_prompt_logprobs in task_requirements.items()
+            if not requires_prompt_logprobs
+        ]
+        return runnable_tasks, skipped_tasks
 
     if _server_supports_prompt_logprobs(port, model_name):
         return list(tasks), {}
@@ -259,19 +276,27 @@ def _split_tasks_by_api_capability(
     return runnable_tasks, skipped_tasks
 
 
+def _model_type_and_url(port: int, chat: bool) -> tuple[str, str]:
+    if chat:
+        return "local-chat-completions", f"http://localhost:{port}/v1/chat/completions"
+    return "local-completions", f"http://localhost:{port}/v1/completions"
+
+
 def _run_via_library(
     port: int,
     tasks: list[str],
     limit: int,
     model_name: str,
     tokenizer_repo: str,
+    chat: bool = False,
 ) -> dict:
     """Use lm_eval.simple_evaluate() directly."""
     import lm_eval
 
+    model_type, base_url = _model_type_and_url(port, chat)
     model_args = (
         f"model={model_name},"
-        f"base_url=http://localhost:{port}/v1/completions,"
+        f"base_url={base_url},"
         f"tokenizer_backend=huggingface,"
         f"tokenizer={tokenizer_repo},"
         f"num_concurrent=4,"
@@ -280,12 +305,13 @@ def _run_via_library(
 
     print(f"Running benchmark: tasks={tasks}, limit={limit}")
     results = lm_eval.simple_evaluate(
-        model="local-completions",
+        model=model_type,
         model_args=model_args,
         tasks=tasks,
         limit=limit,
         log_samples=False,
         confirm_run_unsafe_code=True,
+        apply_chat_template=chat,
     )
 
     return _extract_scores(results["results"])
@@ -297,15 +323,17 @@ def _run_via_cli(
     limit: int,
     model_name: str,
     tokenizer_repo: str,
+    chat: bool = False,
 ) -> dict:
     """Fall back to lm_eval CLI and parse JSON output."""
+    model_type, base_url = _model_type_and_url(port, chat)
     with tempfile.TemporaryDirectory() as tmpdir:
         cmd = [
             sys.executable, "-m", "lm_eval",
-            "--model", "local-completions",
+            "--model", model_type,
             "--model_args", (
                 f"model={model_name},"
-                f"base_url=http://localhost:{port}/v1/completions,"
+                f"base_url={base_url},"
                 f"tokenizer_backend=huggingface,"
                 f"tokenizer={tokenizer_repo},"
                 f"num_concurrent=4,"
@@ -316,6 +344,8 @@ def _run_via_cli(
             "--output_path", tmpdir,
             "--confirm_run_unsafe_code",
         ]
+        if chat:
+            cmd.append("--apply_chat_template")
 
         print(f"Running: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
