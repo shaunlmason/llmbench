@@ -5,6 +5,8 @@ Fast local LLM benchmarking for llama-server. Evaluates GGUF models on coding, m
 ## Install
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -e .
 ```
 
@@ -39,37 +41,38 @@ llmbench results --json
 
 ## Options
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--models` | required | HuggingFace refs (`repo:file.gguf`) |
-| `--gpu` | `gpu0` | `gpu0`, `gpu1`, or `both` |
-| `--context-length` | `4096` | Context window size |
-| `--tasks` | `hellaswag,humaneval` | Comma-separated lm-eval tasks |
-| `--limit` | `200` | Samples per task (speed knob) |
-| `--models-dir` | `~/models` | GGUF storage directory |
-| `--port` | `8080` | llama-server port |
-| `--tokenizer` | auto-detected | HuggingFace tokenizer repo ID |
-| `--no-restore` | off | Skip restarting original services |
+| Flag               | Default               | Description                         |
+| ------------------ | --------------------- | ----------------------------------- |
+| `--models`         | required              | HuggingFace refs (`repo:file.gguf`) |
+| `--gpu`            | `gpu0`                | `gpu0`, `gpu1`, or `both`           |
+| `--context-length` | `4096`                | Context window size                 |
+| `--tasks`          | `hellaswag,humaneval` | Comma-separated lm-eval tasks       |
+| `--limit`          | `200`                 | Samples per task (speed knob)       |
+| `--models-dir`     | `~/models`            | GGUF storage directory              |
+| `--port`           | `8080`                | llama-server port                   |
+| `--tokenizer`      | auto-detected         | HuggingFace tokenizer repo ID       |
+| `--no-restore`     | off                   | Skip restarting original services   |
 
 ## Supported tasks
 
-| Task | Type | Metric | Logprobs? |
-|------|------|--------|-----------|
-| `hellaswag` | Commonsense reasoning | `acc_norm` | Yes |
-| `humaneval` | Code generation (164 tasks) | `pass@1` | No |
-| `mbpp` | Code generation (500 tasks) | `pass@1` | No |
-| `gsm8k` | Grade school math | `exact_match` | No |
-| `minerva_math` | Competition math | `exact_match` | No |
-| `mmlu` | Multitask knowledge | `acc` | Yes |
-| `arc_easy` | Science reasoning (easy) | `acc_norm` | Yes |
-| `arc_challenge` | Science reasoning (hard) | `acc_norm` | Yes |
-| `winogrande` | Coreference resolution | `acc` | Yes |
+| Task            | Type                        | Metric        | Logprobs? |
+| --------------- | --------------------------- | ------------- | --------- |
+| `hellaswag`     | Commonsense reasoning       | `acc_norm`    | Yes       |
+| `humaneval`     | Code generation (164 tasks) | `pass@1`      | No        |
+| `mbpp`          | Code generation (500 tasks) | `pass@1`      | No        |
+| `gsm8k`         | Grade school math           | `exact_match` | No        |
+| `minerva_math`  | Competition math            | `exact_match` | No        |
+| `mmlu`          | Multitask knowledge         | `acc`         | Yes       |
+| `arc_easy`      | Science reasoning (easy)    | `acc_norm`    | Yes       |
+| `arc_challenge` | Science reasoning (hard)    | `acc_norm`    | Yes       |
+| `winogrande`    | Coreference resolution      | `acc`         | Yes       |
 
 Tasks marked "Logprobs: Yes" require the server to return prompt logprobs in legacy format. If the server doesn't support this, those tasks are automatically skipped.
 
 ## How it works
 
 For each model, llmbench:
+
 1. Downloads the GGUF from HuggingFace (if needed)
 2. Stops the running llama-server service(s)
 3. Starts llama-server with the model on the specified GPU(s)
