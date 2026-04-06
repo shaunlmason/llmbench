@@ -2,11 +2,7 @@
 
 llmbench run \
 --models \
- "prism-ml/Bonsai-8B-gguf:Bonsai-8B.gguf" \
- "unsloth/gemma-4-E4B-it-GGUF:gemma-4-E4B-it-UD-Q8_K_XL.gguf" \
- "unsloth/Qwen3.5-27B-GGUF:Qwen3.5-27B-UD-Q4_K_XL.gguf" \
- "bartowski/Qwen_Qwen3.5-35B-A3B-GGUF:Qwen_Qwen3.5-35B-A3B-Q3_K_S.gguf" \
- "bartowski/Qwen_Qwen3.5-35B-A3B-GGUF:Qwen_Qwen3.5-35B-A3B-Q3_K_XL.gguf" \
+ "unsloth/Qwen3.5-27B-GGUF:Qwen3.5-27B-Q5_K_M.gguf" \
  "Jackrong/Qwopus3.5-9B-v3-GGUF:Qwen3.5-9B-v3-Q8_0.gguf" \
  "unsloth/gemma-4-31B-it-GGUF:gemma-4-31B-it-UD-Q4_K_XL.gguf" \
  "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive:Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf" \
@@ -21,7 +17,6 @@ llmbench run \
  "unsloth/gemma-4-26B-A4B-it-GGUF:gemma-4-26B-A4B-it-UD-Q6_K.gguf" \
  "unsloth/Qwen3-30B-A3B-GGUF:Qwen3-30B-A3B-Q5_K_M.gguf" \
  "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf" \
- "unsloth/Qwen3.5-27B-GGUF:Qwen3.5-27B-Q5_K_M.gguf" \
  "bartowski/google_gemma-4-26B-A4B-it-GGUF:gemma-4-26B-A4B-it-Q4_K_M.gguf" \
  "HauhauCS/Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive:Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive-Q3_K_M.gguf" \
 --gpu gpu0 \
@@ -29,3 +24,10 @@ llmbench run \
 --cache-type-k q4_0 \
 --cache-type-v q4_0 \
 --tasks humaneval,gsm8k,minerva_math
+
+## Completed models at q4_0
+
+"unsloth/gemma-4-E4B-it-GGUF:gemma-4-E4B-it-UD-Q8_K_XL.gguf" \
+ "unsloth/Qwen3.5-27B-GGUF:Qwen3.5-27B-UD-Q4_K_XL.gguf" \
+ "bartowski/Qwen_Qwen3.5-35B-A3B-GGUF:Qwen_Qwen3.5-35B-A3B-Q3_K_S.gguf" \
+ "bartowski/Qwen_Qwen3.5-35B-A3B-GGUF:Qwen_Qwen3.5-35B-A3B-Q3_K_XL.gguf" \
