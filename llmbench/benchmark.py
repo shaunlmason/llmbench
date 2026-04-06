@@ -79,7 +79,7 @@ PRIMARY_METRICS = {
     "hellaswag": "acc_norm",
     "humaneval": "pass@1",
     "mbpp": "pass@1",
-    "gsm8k": "exact_match",
+    "gsm8k": "exact_match,flexible-extract",
     "minerva_math": "exact_match",
     "mmlu": "acc",
     "arc_easy": "acc_norm",
