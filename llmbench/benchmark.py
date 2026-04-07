@@ -127,91 +127,184 @@ def _extract_code_from_response(response: str) -> str:
     return response
 
 
-def _install_code_extraction_patches():
-    """Patch lm-eval's humaneval/mbpp instruct filters to extract code from
-    fenced markdown blocks instead of relying on gen_prefix continuation.
+def _patched_mbpp_build_predictions(resps, docs):
+    """Replacement for mbpp.utils.build_predictions in chat mode.
+
+    Extracts the LAST fenced code block from each response. Falls back to
+    the whole response if no fence is found.
+    """
+    return [[_extract_code_from_response(r) for r in resp] for resp in resps]
+
+
+def _patched_humaneval_build_predictions_instruct(resps, docs):
+    """Replacement for humaneval.utils.build_predictions_instruct in chat mode.
+
+    Extracts the LAST fenced code block from each response and prepends the
+    original prompt's function signature. This works whether the model wrote:
+      (a) a complete function — the prompt's signature gets redefined (Python
+          takes the second `def`), or
+      (b) just the body — the indented body flows into the prompt's function
+          definition above.
+    """
+    return [
+        [
+            doc["prompt"] + _extract_code_from_response(r)
+            for r in resp
+        ]
+        for resp, doc in zip(resps, docs)
+    ]
+
+
+# Map of (function_name, file_path_substring) -> replacement function.
+# Used by _patch_task_filter_chains to identify captured filter_fn references
+# inside FilterEnsemble.filters partials and substitute our patched versions.
+# Only humaneval_instruct and mbpp_instruct are targeted — both are leaf
+# tasks whose filter_list captures one filter_fn each.
+_FUNCTION_REPLACEMENTS = [
+    ("build_predictions_instruct", "humaneval/utils", _patched_humaneval_build_predictions_instruct),
+    ("build_predictions", "mbpp/utils", _patched_mbpp_build_predictions),
+]
+
+
+def _find_replacement_for(fn):
+    """Return our patched replacement for a captured filter function, or None.
+
+    Identifies functions by name + source file path, since lm-eval loads each
+    task's utils.py via importlib.util.spec_from_file_location, which creates
+    module instances NOT registered in sys.modules. The captured function's
+    __code__.co_filename is the only reliable identifier.
+    """
+    if not callable(fn):
+        return None
+    name = getattr(fn, "__name__", None)
+    code = getattr(fn, "__code__", None)
+    co_filename = getattr(code, "co_filename", "") if code else ""
+    if not name:
+        return None
+    for target_name, file_substr, replacement in _FUNCTION_REPLACEMENTS:
+        if name == target_name and file_substr in co_filename:
+            return replacement
+    return None
+
+
+def _patch_task_filter_chains(task_dict) -> int:
+    """Walk pre-loaded Task objects and replace targeted filter functions
+    with our patched versions. Mutates task objects in-place. Returns the
+    number of replacements performed (so callers can verify the patch took).
+
+    Why we mutate the tasks directly instead of patching at import: lm-eval's
+    `!function` YAML constructor loads task utils.py via spec_from_file_location,
+    so each task gets its own module instance NOT in sys.modules. The filter
+    function reference is captured at YAML parse time inside a `functools.partial`
+    that lives in `task._filters[i].filters[j].keywords['filter_fn']`. Replacing
+    it directly in the loaded task objects is the only reliable way to intercept.
 
     Why this is needed: humaneval_instruct and mbpp_instruct were designed
-    around `gen_prefix`, which prefills the start of the assistant response
-    in COMPLETION mode. The OpenAI chat completions API has no way to prefill
-    an assistant turn, so the gen_prefix is silently dropped — and the model
-    emits its OWN ```python opening fence as part of a normal markdown reply.
-
-    The original extractors then misbehave:
-      - mbpp's `extract_code_blocks` prepends ``` to the response, so the
-        model's own fence becomes ``````python and the regex matches an
-        empty string between the two opening fences.
-      - humaneval's `build_predictions_instruct` cuts at the first ```, which
-        is the OPENING fence in chat mode, so it returns just doc["prompt"]
-        with no body at all.
-
-    Both bugs zero out their respective tasks for *every* chat-mode model,
-    regardless of skill. The fix is to find code blocks the way a normal
-    markdown parser would, and use the LAST fenced block's contents.
+    around `gen_prefix`, which prefills the start of the assistant response in
+    COMPLETION mode. The OpenAI chat completions API has no way to prefill an
+    assistant turn, so the gen_prefix is silently dropped — and the model emits
+    its OWN ```python opening fence as part of a normal markdown reply. The
+    original extractors then misbehave: mbpp returns "" because of double
+    fences; humaneval returns just doc["prompt"] because it cuts at the first
+    ``` (which is the opening fence, not the closing one).
     """
-    # Patch mbpp's extract_code_blocks
+    import functools
+
+    replacements = 0
+
+    def _walk(task_dict_or_obj):
+        nonlocal replacements
+        if isinstance(task_dict_or_obj, dict):
+            for v in task_dict_or_obj.values():
+                _walk(v)
+            return
+
+        task = task_dict_or_obj
+        task_name = getattr(getattr(task, "config", None), "task", None) or type(task).__name__
+
+        # Patch task._filters (the live filter chain used at evaluation time)
+        filters = getattr(task, "_filters", None)
+        if filters:
+            for i, ensemble in enumerate(filters):
+                sub_filters = getattr(ensemble, "filters", None)
+                if not sub_filters:
+                    continue
+                for j, partial_obj in enumerate(sub_filters):
+                    if not isinstance(partial_obj, functools.partial):
+                        continue
+                    kw = dict(getattr(partial_obj, "keywords", None) or {})
+                    fn = kw.get("filter_fn")
+                    replacement = _find_replacement_for(fn)
+                    if replacement is None:
+                        continue
+                    kw["filter_fn"] = replacement
+                    new_partial = functools.partial(
+                        partial_obj.func,
+                        *(partial_obj.args or ()),
+                        **kw,
+                    )
+                    sub_filters[j] = new_partial
+                    replacements += 1
+                    print(
+                        f"  [filter patch] {task_name}._filters[{i}].filters[{j}]: "
+                        f"{fn.__name__} -> llmbench replacement"
+                    )
+
+        # Also patch task.config.filter_list for consistency (some lm-eval
+        # codepaths re-read this dict — keep both views aligned).
+        cfg = getattr(task, "config", None)
+        if cfg is not None:
+            filter_list = getattr(cfg, "filter_list", None)
+            if filter_list:
+                for fc in filter_list:
+                    for fn_cfg in fc.get("filter", []):
+                        if not isinstance(fn_cfg, dict):
+                            continue
+                        fn_ref = fn_cfg.get("filter_fn")
+                        replacement = _find_replacement_for(fn_ref)
+                        if replacement is not None:
+                            fn_cfg["filter_fn"] = replacement
+
+    _walk(task_dict)
+    return replacements
+
+
+def _preload_and_patch_chat_tasks(tasks: list[str]):
+    """Pre-load tasks via TaskManager + get_task_dict, then walk each task's
+    filter chain and replace captured filter functions with our chat-aware
+    versions. Returns (task_objects_list, task_manager) to pass to
+    simple_evaluate.
+
+    Returns (None, None) if lm_eval is not importable or no tasks needed
+    patching — caller should fall back to passing string task names.
+    """
     try:
-        from lm_eval.tasks.mbpp import utils as mbpp_utils
+        from lm_eval.tasks import TaskManager, get_task_dict
     except ImportError:
-        print("Warning: could not locate lm_eval.tasks.mbpp.utils — mbpp_instruct may score 0 in chat mode.")
-        mbpp_utils = None
+        print("Warning: could not import lm_eval.tasks — chat-mode code tasks may score 0.")
+        return None, None
 
-    if mbpp_utils is not None and not getattr(mbpp_utils, "_llmbench_code_patched", False):
-        # Counter so we only print debug for the first few calls
-        _mbpp_debug = {"calls": 0}
+    task_manager = TaskManager()
+    task_dict = get_task_dict(tasks, task_manager)
 
-        def patched_extract_code_blocks(text):
-            result = _extract_code_from_response(text)
-            if _mbpp_debug["calls"] < 2:
-                print(f"[mbpp extract] in:  {text!r}"[:300])
-                print(f"[mbpp extract] out: {result!r}"[:300])
-                _mbpp_debug["calls"] += 1
-            return result
+    replacements = _patch_task_filter_chains(task_dict)
+    if replacements == 0:
+        # Nothing to patch — let simple_evaluate handle the tasks normally
+        return None, None
 
-        # Also patch build_predictions directly — the YAML's !function constructor
-        # captures the function reference at parse time, so patching extract_code_blocks
-        # alone may not propagate if build_predictions is invoked via the captured ref.
-        def patched_build_predictions(resps, docs):
-            return [[_extract_code_from_response(r) for r in resp] for resp in resps]
+    # Flatten any nested groups into a list of task objects for simple_evaluate
+    task_objects = []
 
-        mbpp_utils.extract_code_blocks = patched_extract_code_blocks
-        mbpp_utils.build_predictions = patched_build_predictions
-        mbpp_utils._llmbench_code_patched = True
-        print("Installed chat-mode code extractor for mbpp_instruct")
+    def _collect(node):
+        if isinstance(node, dict):
+            for v in node.values():
+                _collect(v)
+        else:
+            task_objects.append(node)
 
-    # Patch humaneval's build_predictions_instruct
-    try:
-        from lm_eval.tasks.humaneval import utils as humaneval_utils
-    except ImportError:
-        print("Warning: could not locate lm_eval.tasks.humaneval.utils — humaneval_instruct may underscore in chat mode.")
-        humaneval_utils = None
-
-    if humaneval_utils is not None and not getattr(humaneval_utils, "_llmbench_code_patched", False):
-        _he_debug = {"calls": 0}
-
-        def patched_build_predictions_instruct(resps, docs):
-            # For each response, extract the code from the model's markdown fence
-            # and prepend doc["prompt"]. Prepending works whether the model wrote:
-            #   (a) a complete function: the prompt's signature gets redefined
-            #       (Python takes the second def), or
-            #   (b) just the body: the indented body flows into the prompt's
-            #       function definition above.
-            results = [
-                [
-                    doc["prompt"] + _extract_code_from_response(r)
-                    for r in resp
-                ]
-                for resp, doc in zip(resps, docs)
-            ]
-            if _he_debug["calls"] < 1 and resps:
-                print(f"[humaneval extract] sample raw response: {resps[0][0]!r}"[:300])
-                print(f"[humaneval extract] sample result: {results[0][0]!r}"[:400])
-                _he_debug["calls"] += 1
-            return results
-
-        humaneval_utils.build_predictions_instruct = patched_build_predictions_instruct
-        humaneval_utils._llmbench_code_patched = True
-        print("Installed chat-mode code extractor for humaneval_instruct")
+    _collect(task_dict)
+    print(f"Patched {replacements} filter function(s) for chat-mode code extraction")
+    return task_objects, task_manager
 
 
 # Map GGUF filename prefixes to HuggingFace tokenizer repos
@@ -545,9 +638,16 @@ def _run_via_library(
     """Use lm_eval.simple_evaluate() directly."""
     import lm_eval
 
+    tasks_arg: list = list(tasks)
+    task_manager_arg = None
     if chat:
         _install_reasoning_stripper()
-        _install_code_extraction_patches()
+        # Pre-load tasks so we can walk their filter chains and substitute
+        # chat-aware code extractors before evaluation runs.
+        patched_tasks, patched_tm = _preload_and_patch_chat_tasks(tasks)
+        if patched_tasks is not None:
+            tasks_arg = patched_tasks
+            task_manager_arg = patched_tm
 
     model_type, base_url = _model_type_and_url(port, chat)
     model_args = (
@@ -564,7 +664,8 @@ def _run_via_library(
     results = lm_eval.simple_evaluate(
         model=model_type,
         model_args=model_args,
-        tasks=tasks,
+        tasks=tasks_arg,
+        task_manager=task_manager_arg,
         limit=limit,
         log_samples=False,
         confirm_run_unsafe_code=True,
@@ -584,10 +685,20 @@ def _run_via_cli(
     chat: bool = False,
     system: str | None = None,
 ) -> dict:
-    """Fall back to lm_eval CLI and parse JSON output."""
+    """Fall back to lm_eval CLI and parse JSON output.
+
+    Note: chat-mode code extraction patches (humaneval_instruct/mbpp_instruct)
+    only work in the library path because they walk pre-loaded Task objects.
+    The CLI runs lm_eval in a subprocess where our in-process patches don't
+    reach. If chat-mode code tasks land here, they will score incorrectly.
+    """
     if chat:
         _install_reasoning_stripper()
-        _install_code_extraction_patches()
+        if any(t in tasks for t in ("humaneval_instruct", "mbpp_instruct", "humaneval", "mbpp")):
+            print(
+                "Warning: CLI fallback cannot patch chat-mode code-extraction filters; "
+                "humaneval/mbpp scores from this path will be unreliable."
+            )
     model_type, base_url = _model_type_and_url(port, chat)
     with tempfile.TemporaryDirectory() as tmpdir:
         cmd = [
