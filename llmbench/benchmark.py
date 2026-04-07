@@ -102,6 +102,96 @@ def _install_reasoning_stripper():
     print("Installed reasoning marker stripper for chat-mode benchmarks")
 
 
+# Matches a fenced markdown code block, optional language tag, captures the body.
+# Used to extract code from chat-mode model responses for humaneval/mbpp scoring.
+_CODE_FENCE_RE = re.compile(
+    r"```(?:[a-zA-Z0-9_+\-]*)\s*\n?(.*?)```",
+    re.DOTALL,
+)
+
+
+def _extract_code_from_response(response: str) -> str:
+    """Extract code from a chat-mode model response.
+
+    Strategy: find all fenced code blocks (```lang\n...\n```), return the content
+    of the LAST one (models often write explanation, then the code, then a
+    summary that may itself contain a tiny snippet — we want the main solution).
+    Falls back to the whole response if no fence is found.
+    """
+    if not isinstance(response, str):
+        return response
+    matches = _CODE_FENCE_RE.findall(response)
+    if matches:
+        # Strip trailing newlines but keep internal indentation
+        return matches[-1].rstrip("\n")
+    return response
+
+
+def _install_code_extraction_patches():
+    """Patch lm-eval's humaneval/mbpp instruct filters to extract code from
+    fenced markdown blocks instead of relying on gen_prefix continuation.
+
+    Why this is needed: humaneval_instruct and mbpp_instruct were designed
+    around `gen_prefix`, which prefills the start of the assistant response
+    in COMPLETION mode. The OpenAI chat completions API has no way to prefill
+    an assistant turn, so the gen_prefix is silently dropped — and the model
+    emits its OWN ```python opening fence as part of a normal markdown reply.
+
+    The original extractors then misbehave:
+      - mbpp's `extract_code_blocks` prepends ``` to the response, so the
+        model's own fence becomes ``````python and the regex matches an
+        empty string between the two opening fences.
+      - humaneval's `build_predictions_instruct` cuts at the first ```, which
+        is the OPENING fence in chat mode, so it returns just doc["prompt"]
+        with no body at all.
+
+    Both bugs zero out their respective tasks for *every* chat-mode model,
+    regardless of skill. The fix is to find code blocks the way a normal
+    markdown parser would, and use the LAST fenced block's contents.
+    """
+    # Patch mbpp's extract_code_blocks
+    try:
+        from lm_eval.tasks.mbpp import utils as mbpp_utils
+    except ImportError:
+        print("Warning: could not locate lm_eval.tasks.mbpp.utils — mbpp_instruct may score 0 in chat mode.")
+        mbpp_utils = None
+
+    if mbpp_utils is not None and not getattr(mbpp_utils, "_llmbench_code_patched", False):
+        def patched_extract_code_blocks(text):
+            return _extract_code_from_response(text)
+
+        mbpp_utils.extract_code_blocks = patched_extract_code_blocks
+        mbpp_utils._llmbench_code_patched = True
+        print("Installed chat-mode code extractor for mbpp_instruct")
+
+    # Patch humaneval's build_predictions_instruct
+    try:
+        from lm_eval.tasks.humaneval import utils as humaneval_utils
+    except ImportError:
+        print("Warning: could not locate lm_eval.tasks.humaneval.utils — humaneval_instruct may underscore in chat mode.")
+        humaneval_utils = None
+
+    if humaneval_utils is not None and not getattr(humaneval_utils, "_llmbench_code_patched", False):
+        def patched_build_predictions_instruct(resps, docs):
+            # For each response, extract the code from the model's markdown fence
+            # and prepend doc["prompt"]. Prepending works whether the model wrote:
+            #   (a) a complete function: the prompt's signature gets redefined
+            #       (Python takes the second def), or
+            #   (b) just the body: the indented body flows into the prompt's
+            #       function definition above.
+            return [
+                [
+                    doc["prompt"] + _extract_code_from_response(r)
+                    for r in resp
+                ]
+                for resp, doc in zip(resps, docs)
+            ]
+
+        humaneval_utils.build_predictions_instruct = patched_build_predictions_instruct
+        humaneval_utils._llmbench_code_patched = True
+        print("Installed chat-mode code extractor for humaneval_instruct")
+
+
 # Map GGUF filename prefixes to HuggingFace tokenizer repos
 TOKENIZER_MAP = {
     "Bonsai-": "Qwen/Qwen3-0.6B",
@@ -435,6 +525,7 @@ def _run_via_library(
 
     if chat:
         _install_reasoning_stripper()
+        _install_code_extraction_patches()
 
     model_type, base_url = _model_type_and_url(port, chat)
     model_args = (
@@ -474,6 +565,7 @@ def _run_via_cli(
     """Fall back to lm_eval CLI and parse JSON output."""
     if chat:
         _install_reasoning_stripper()
+        _install_code_extraction_patches()
     model_type, base_url = _model_type_and_url(port, chat)
     with tempfile.TemporaryDirectory() as tmpdir:
         cmd = [
