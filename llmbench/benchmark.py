@@ -157,10 +157,25 @@ def _install_code_extraction_patches():
         mbpp_utils = None
 
     if mbpp_utils is not None and not getattr(mbpp_utils, "_llmbench_code_patched", False):
+        # Counter so we only print debug for the first few calls
+        _mbpp_debug = {"calls": 0}
+
         def patched_extract_code_blocks(text):
-            return _extract_code_from_response(text)
+            result = _extract_code_from_response(text)
+            if _mbpp_debug["calls"] < 2:
+                print(f"[mbpp extract] in:  {text!r}"[:300])
+                print(f"[mbpp extract] out: {result!r}"[:300])
+                _mbpp_debug["calls"] += 1
+            return result
+
+        # Also patch build_predictions directly — the YAML's !function constructor
+        # captures the function reference at parse time, so patching extract_code_blocks
+        # alone may not propagate if build_predictions is invoked via the captured ref.
+        def patched_build_predictions(resps, docs):
+            return [[_extract_code_from_response(r) for r in resp] for resp in resps]
 
         mbpp_utils.extract_code_blocks = patched_extract_code_blocks
+        mbpp_utils.build_predictions = patched_build_predictions
         mbpp_utils._llmbench_code_patched = True
         print("Installed chat-mode code extractor for mbpp_instruct")
 
@@ -172,6 +187,8 @@ def _install_code_extraction_patches():
         humaneval_utils = None
 
     if humaneval_utils is not None and not getattr(humaneval_utils, "_llmbench_code_patched", False):
+        _he_debug = {"calls": 0}
+
         def patched_build_predictions_instruct(resps, docs):
             # For each response, extract the code from the model's markdown fence
             # and prepend doc["prompt"]. Prepending works whether the model wrote:
@@ -179,13 +196,18 @@ def _install_code_extraction_patches():
             #       (Python takes the second def), or
             #   (b) just the body: the indented body flows into the prompt's
             #       function definition above.
-            return [
+            results = [
                 [
                     doc["prompt"] + _extract_code_from_response(r)
                     for r in resp
                 ]
                 for resp, doc in zip(resps, docs)
             ]
+            if _he_debug["calls"] < 1 and resps:
+                print(f"[humaneval extract] sample raw response: {resps[0][0]!r}"[:300])
+                print(f"[humaneval extract] sample result: {results[0][0]!r}"[:400])
+                _he_debug["calls"] += 1
+            return results
 
         humaneval_utils.build_predictions_instruct = patched_build_predictions_instruct
         humaneval_utils._llmbench_code_patched = True
